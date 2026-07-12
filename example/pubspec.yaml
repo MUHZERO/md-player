@@ -17,15 +17,15 @@ dependencies:
     # the parent directory to use the current plugin's version.
     path: ../
   video_player_platform_interface: ">=6.1.0 <7.0.0"
-  youtube_explode_dart: ^2.2.1
+  youtube_explode_dart: ^3.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   integration_test:
     sdk: flutter
-  path_provider: ^2.0.6
-  test: any
+  path_provider: ^2.1.6
+  test: ^1.31.0
 
 flutter:
   uses-material-design: true
