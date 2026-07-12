@@ -1,0 +1,16 @@
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.gradle/
+.idea/
+build/
+android/.gradle/
+android/.idea/
+android/build/
+android/local.properties
+example/.dart_tool/
+example/.flutter-plugins
+example/.flutter-plugins-dependencies
+example/build/
+example/android/.gradle/
+example/android/local.properties
