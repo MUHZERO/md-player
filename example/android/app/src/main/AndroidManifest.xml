@@ -1,5 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-  package="io.flutter.plugins.videoplayerexample">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
   <application
     android:icon="@mipmap/ic_launcher"
@@ -9,6 +8,7 @@
       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection"
       android:hardwareAccelerated="true"
       android:name="io.flutter.embedding.android.FlutterActivity"
+      android:exported="true"
       android:theme="@style/LaunchTheme"
       android:windowSoftInputMode="adjustResize">
       <intent-filter>

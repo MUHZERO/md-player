@@ -113,6 +113,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
   }
 
   @RestrictTo(RestrictTo.Scope.LIBRARY)
+  @SuppressWarnings("removal")
   public void onSurfaceCreated() {
     exoPlayer = createVideoPlayer();
     if (savedStateDuring != null) {
@@ -122,6 +123,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
   }
 
   @RestrictTo(RestrictTo.Scope.LIBRARY)
+  @SuppressWarnings("removal")
   public void onSurfaceDestroyed() {
     exoPlayer.stop();
     savedStateDuring = ExoPlayerState.save(exoPlayer);

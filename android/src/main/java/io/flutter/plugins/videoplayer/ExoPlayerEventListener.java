@@ -33,7 +33,7 @@ final class ExoPlayerEventListener implements Player.Listener {
     }
   }
 
-  @SuppressWarnings("SuspiciousNameCombination")
+  @SuppressWarnings({"SuspiciousNameCombination", "deprecation"})
   private void sendInitialized() {
     if (isInitialized) {
       return;

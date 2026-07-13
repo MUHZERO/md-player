@@ -17,7 +17,6 @@ dependencies:
     # the parent directory to use the current plugin's version.
     path: ../
   video_player_platform_interface: ">=6.1.0 <7.0.0"
-  youtube_explode_dart: ^3.1.0
 
 dev_dependencies:
   flutter_test:

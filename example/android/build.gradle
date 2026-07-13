@@ -5,7 +5,7 @@ buildscript {
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:9.2.1'
+        classpath 'com.android.tools.build:gradle:8.6.0'
     }
 }
 
@@ -41,7 +41,7 @@ tasks.register("clean", Delete) {
 gradle.projectsEvaluated {
     project(":md_player_android") {
         tasks.withType(JavaCompile) {
-            options.compilerArgs << "-Xlint:all" << "-Werror"
+            options.compilerArgs << "-Xlint:all" << "-Xlint:-options" << "-Werror"
 
             // Workaround for several warnings when building
             // that the above turns into errors, coming from
