@@ -39,14 +39,15 @@ class _MuhPlState extends State<MuhPl> {
   }
 
   void _toggleFullscreen() {
-    setState(() => _fullscreen = !_fullscreen);
+    final bool fullscreen = !_fullscreen;
+    setState(() => _fullscreen = fullscreen);
     SystemChrome.setPreferredOrientations(
-      _fullscreen
-          ? <DeviceOrientation>[DeviceOrientation.portraitUp]
-          : <DeviceOrientation>[
+      fullscreen
+          ? <DeviceOrientation>[
               DeviceOrientation.landscapeLeft,
               DeviceOrientation.landscapeRight,
-            ],
+            ]
+          : <DeviceOrientation>[DeviceOrientation.portraitUp],
     );
   }
 

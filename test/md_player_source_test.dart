@@ -68,7 +68,8 @@ void main() {
     final MdPlayerSource source =
         await resolver.resolve('https://vimeo.com/123');
 
-    expect(source.videoUrl, 'https://vimeo.example/720.mp4');
+    expect(source.videoUrl, 'https://vimeo.example/360.mp4');
+    expect(source.qualityLabel, '360p');
     expect(source.qualities.map((MdPlayerQuality q) => q.label),
         <String>['360p', '720p']);
     resolver.close();

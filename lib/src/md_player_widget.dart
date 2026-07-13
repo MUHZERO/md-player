@@ -159,7 +159,10 @@ class _Controls extends StatelessWidget {
                     for (final double speed in _speeds)
                       PopupMenuItem<double>(
                         value: speed,
-                        child: Text('${speed}x'),
+                        child: _CheckedMenuLabel(
+                          selected: speed == value.playbackSpeed,
+                          label: '${speed}x',
+                        ),
                       ),
                   ],
                   child: Padding(
@@ -178,19 +181,26 @@ class _Controls extends StatelessWidget {
                       for (final MdPlayerQuality quality in value.qualities)
                         PopupMenuItem<MdPlayerQuality>(
                           value: quality,
-                          child: Text(quality.label),
+                          child: _CheckedMenuLabel(
+                            selected: quality.label == value.qualityLabel,
+                            label: quality.label,
+                          ),
                         ),
                     ],
-                    child: const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Icon(Icons.settings, color: Colors.white),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Text(
+                        value.qualityLabel,
+                        style: const TextStyle(color: Colors.white),
+                      ),
                     ),
                   ),
-                IconButton(
-                  color: Colors.white,
-                  icon: const Icon(Icons.fullscreen),
-                  onPressed: onFullscreenPressed,
-                ),
+                if (onFullscreenPressed != null)
+                  IconButton(
+                    color: Colors.white,
+                    icon: const Icon(Icons.fullscreen),
+                    onPressed: onFullscreenPressed,
+                  ),
               ],
             ),
           ),
@@ -207,6 +217,30 @@ class _Controls extends StatelessWidget {
       return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
     }
     return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+}
+
+class _CheckedMenuLabel extends StatelessWidget {
+  const _CheckedMenuLabel({
+    required this.selected,
+    required this.label,
+  });
+
+  final bool selected;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        SizedBox(
+          width: 24,
+          child: selected ? const Icon(Icons.check, size: 18) : null,
+        ),
+        Text(label),
+      ],
+    );
   }
 }
 

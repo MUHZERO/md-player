@@ -124,8 +124,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
       value = value.copyWith(
         isResolving: false,
         qualities: _source!.qualities,
-        qualityLabel:
-            _source!.qualities.isEmpty ? 'auto' : _source!.qualities.last.label,
+        qualityLabel: _source!.qualityLabel,
       );
       await _create(_source!);
     } catch (error) {
@@ -253,6 +252,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
       await _create(MdPlayerSource(
         videoUrl: quality.videoUrl,
         audioUrl: quality.audioUrl,
+        qualityLabel: quality.label,
       ));
       await seekTo(position);
       if (wasPlaying) {

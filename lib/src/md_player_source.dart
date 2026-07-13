@@ -21,12 +21,14 @@ class MdPlayerSource {
     required this.videoUrl,
     this.audioUrl,
     this.formatHint,
+    this.qualityLabel = 'auto',
     this.qualities = const <MdPlayerQuality>[],
   });
 
   final String videoUrl;
   final String? audioUrl;
   final VideoFormat? formatHint;
+  final String qualityLabel;
   final List<MdPlayerQuality> qualities;
 }
 
@@ -65,55 +67,63 @@ class MdPlayerSourceResolver {
     try {
       final StreamManifest manifest =
           await yt.videos.streamsClient.getManifest(VideoId(url));
-      final List<MdPlayerQuality> qualities = <MdPlayerQuality>[];
 
-      for (final HlsMuxedStreamInfo stream
-          in manifest.hls.whereType<HlsMuxedStreamInfo>()) {
-        qualities.add(MdPlayerQuality(
-          label: stream.qualityLabel,
-          videoUrl: stream.url.toString(),
-        ));
-      }
-      if (qualities.isNotEmpty) {
+      if (manifest.videoOnly.isNotEmpty && manifest.audioOnly.isNotEmpty) {
+        final String audioUrl = manifest.audioOnly.last.url.toString();
+        final List<MdPlayerQuality> qualities = _uniqueQualities(
+          manifest.videoOnly.map(
+            (VideoOnlyStreamInfo stream) => MdPlayerQuality(
+              label: stream.qualityLabel,
+              videoUrl: stream.url.toString(),
+              audioUrl: audioUrl,
+            ),
+          ),
+        );
+        final MdPlayerQuality selected = _defaultQuality(qualities);
         return MdPlayerSource(
-          videoUrl: qualities.last.videoUrl,
-          formatHint: VideoFormat.hls,
+          videoUrl: selected.videoUrl,
+          audioUrl: selected.audioUrl,
+          qualityLabel: selected.label,
           qualities: qualities,
         );
       }
 
-      for (final MuxedStreamInfo stream in manifest.muxed) {
-        qualities.add(MdPlayerQuality(
-          label: stream.qualityLabel,
-          videoUrl: stream.url.toString(),
-        ));
-      }
-      if (qualities.isNotEmpty) {
-        return MdPlayerSource(
-          videoUrl: qualities.last.videoUrl,
-          qualities: qualities,
-        );
-      }
-
-      final String audioUrl = manifest.audioOnly.last.url.toString();
-      final Set<String> seen = <String>{};
-      for (final VideoOnlyStreamInfo stream in manifest.videoOnly) {
-        if (seen.add(stream.qualityLabel)) {
-          qualities.add(MdPlayerQuality(
+      final List<MdPlayerQuality> muxedQualities = _uniqueQualities(
+        manifest.muxed.map(
+          (MuxedStreamInfo stream) => MdPlayerQuality(
             label: stream.qualityLabel,
             videoUrl: stream.url.toString(),
-            audioUrl: audioUrl,
-          ));
-        }
-      }
-      if (qualities.isEmpty) {
-        throw StateError('No playable YouTube stream found');
-      }
-      return MdPlayerSource(
-        videoUrl: qualities.last.videoUrl,
-        audioUrl: audioUrl,
-        qualities: qualities,
+          ),
+        ),
       );
+      if (muxedQualities.isNotEmpty) {
+        final MdPlayerQuality selected = _defaultQuality(muxedQualities);
+        return MdPlayerSource(
+          videoUrl: selected.videoUrl,
+          qualityLabel: selected.label,
+          qualities: muxedQualities,
+        );
+      }
+
+      final List<MdPlayerQuality> hlsQualities = <MdPlayerQuality>[];
+      for (final HlsMuxedStreamInfo stream
+          in manifest.hls.whereType<HlsMuxedStreamInfo>()) {
+        hlsQualities.add(MdPlayerQuality(
+          label: stream.qualityLabel,
+          videoUrl: stream.url.toString(),
+        ));
+      }
+      if (hlsQualities.isNotEmpty) {
+        final MdPlayerQuality selected = _defaultQuality(hlsQualities);
+        return MdPlayerSource(
+          videoUrl: selected.videoUrl,
+          formatHint: VideoFormat.hls,
+          qualityLabel: selected.label,
+          qualities: hlsQualities,
+        );
+      }
+
+      throw StateError('No playable YouTube stream found');
     } finally {
       yt.close();
     }
@@ -163,8 +173,10 @@ class MdPlayerSourceResolver {
               ))
           .toList();
       if (qualities.isNotEmpty) {
+        final MdPlayerQuality selected = _defaultQuality(qualities);
         return MdPlayerSource(
-          videoUrl: qualities.last.videoUrl,
+          videoUrl: selected.videoUrl,
+          qualityLabel: selected.label,
           qualities: qualities,
         );
       }
@@ -190,4 +202,26 @@ class MdPlayerSourceResolver {
   void close() {
     _httpClient.close();
   }
+}
+
+List<MdPlayerQuality> _uniqueQualities(Iterable<MdPlayerQuality> qualities) {
+  final Map<String, MdPlayerQuality> byLabel = <String, MdPlayerQuality>{};
+  for (final MdPlayerQuality quality in qualities) {
+    byLabel[quality.label] = quality;
+  }
+  final List<MdPlayerQuality> result = byLabel.values.toList()
+    ..sort((MdPlayerQuality a, MdPlayerQuality b) =>
+        _qualityHeight(a.label).compareTo(_qualityHeight(b.label)));
+  return result;
+}
+
+MdPlayerQuality _defaultQuality(List<MdPlayerQuality> qualities) {
+  return qualities.firstWhere(
+    (MdPlayerQuality quality) => quality.label == '360p',
+    orElse: () => qualities.first,
+  );
+}
+
+int _qualityHeight(String label) {
+  return int.tryParse(RegExp(r'\d+').firstMatch(label)?.group(0) ?? '') ?? 0;
 }
