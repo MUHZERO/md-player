@@ -12,6 +12,7 @@ import 'test_api.g.dart';
 
 class _ApiLogger implements TestHostVideoPlayerApi {
   final List<String> log = <String>[];
+  bool throwOnPlay = false;
   TextureMessage? textureMessage;
   CreateMessage? createMessage;
   PositionMessage? positionMessage;
@@ -49,6 +50,9 @@ class _ApiLogger implements TestHostVideoPlayerApi {
   void play(TextureMessage arg) {
     log.add('play');
     textureMessage = arg;
+    if (throwOnPlay) {
+      throw PlatformException(code: 'VideoError', message: 'Source error');
+    }
   }
 
   @override
@@ -421,6 +425,45 @@ void main() {
               isPlaying: false,
             ),
           ]));
+    });
+
+    test('controller play stores platform errors', () async {
+      MdPlayerAndroid.registerWith();
+      log.throwOnPlay = true;
+      const String mockChannel = 'flutter.io/videoPlayer/videoEvents3';
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMessageHandler(
+        mockChannel,
+        (ByteData? message) async {
+          final MethodCall methodCall =
+              const StandardMethodCodec().decodeMethodCall(message);
+          if (methodCall.method == 'listen') {
+            await TestDefaultBinaryMessengerBinding
+                .instance.defaultBinaryMessenger
+                .handlePlatformMessage(
+                    mockChannel,
+                    const StandardMethodCodec()
+                        .encodeSuccessEnvelope(<String, dynamic>{
+                      'event': 'initialized',
+                      'duration': 98765,
+                      'width': 1920,
+                      'height': 1080,
+                    }),
+                    (ByteData? data) {});
+          }
+          return const StandardMethodCodec().encodeSuccessEnvelope(null);
+        },
+      );
+
+      final MdPlayerController controller = MdPlayerController.network(
+        'https://example.com/video.mp4',
+      );
+      await controller.initialize();
+      await controller.play();
+
+      expect(controller.value.hasError, true);
+      expect(controller.value.errorDescription, 'Source error');
+      await controller.dispose();
     });
   });
 }

@@ -47,7 +47,7 @@ public final class ExoPlayerEventListenerTests {
 
   @Test
   public void onPlaybackStateChangedReadySendInitialized() {
-    VideoSize size = new VideoSize(800, 400, 0, 0);
+    VideoSize size = new VideoSize(800, 400);
     when(mockExoPlayer.getVideoSize()).thenReturn(size);
     when(mockExoPlayer.getDuration()).thenReturn(10L);
 
@@ -56,33 +56,13 @@ public final class ExoPlayerEventListenerTests {
   }
 
   @Test
-  public void onPlaybackStateChangedReadyInPortraitMode90DegreesSwapWidthAndHeight() {
-    VideoSize size = new VideoSize(800, 400, 90, 0);
+  public void onPlaybackStateChangedReadyUsesReportedVideoSize() {
+    VideoSize size = new VideoSize(400, 800);
     when(mockExoPlayer.getVideoSize()).thenReturn(size);
     when(mockExoPlayer.getDuration()).thenReturn(10L);
 
     eventListener.onPlaybackStateChanged(Player.STATE_READY);
     verify(mockCallbacks).onInitialized(400, 800, 10L, 0);
-  }
-
-  @Test
-  public void onPlaybackStateChangedReadyInPortraitMode270DegreesSwapWidthAndHeight() {
-    VideoSize size = new VideoSize(800, 400, 270, 0);
-    when(mockExoPlayer.getVideoSize()).thenReturn(size);
-    when(mockExoPlayer.getDuration()).thenReturn(10L);
-
-    eventListener.onPlaybackStateChanged(Player.STATE_READY);
-    verify(mockCallbacks).onInitialized(400, 800, 10L, 0);
-  }
-
-  @Test
-  public void onPlaybackStateChangedReadyFlipped180DegreesInformEventHandler() {
-    VideoSize size = new VideoSize(800, 400, 180, 0);
-    when(mockExoPlayer.getVideoSize()).thenReturn(size);
-    when(mockExoPlayer.getDuration()).thenReturn(10L);
-
-    eventListener.onPlaybackStateChanged(Player.STATE_READY);
-    verify(mockCallbacks).onInitialized(800, 400, 10L, 180);
   }
 
   @Test

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
@@ -207,19 +208,41 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
 
   Future<void> play() async {
     value = value.copyWith(isPlaying: true);
-    await _platform.play(_textureId);
+    try {
+      await _platform.play(_textureId);
+    } on PlatformException catch (error) {
+      _setPlatformError(error);
+      return;
+    }
     _positionTimer?.cancel();
     _positionTimer =
         Timer.periodic(const Duration(milliseconds: 500), (_) async {
-      value = value.copyWith(position: await _platform.getPosition(_textureId));
+      final int textureId = _textureId;
+      if (textureId == kUninitializedTextureId) {
+        return;
+      }
+      try {
+        value =
+            value.copyWith(position: await _platform.getPosition(textureId));
+      } on PlatformException catch (_) {
+        _positionTimer?.cancel();
+      }
     });
-    await _platform.setPlaybackSpeed(_textureId, value.playbackSpeed);
+    try {
+      await _platform.setPlaybackSpeed(_textureId, value.playbackSpeed);
+    } on PlatformException catch (error) {
+      _setPlatformError(error);
+    }
   }
 
   Future<void> pause() async {
     value = value.copyWith(isPlaying: false);
     _positionTimer?.cancel();
-    await _platform.pause(_textureId);
+    try {
+      await _platform.pause(_textureId);
+    } on PlatformException catch (error) {
+      _setPlatformError(error);
+    }
   }
 
   Future<void> seekTo(Duration position) async {
@@ -228,14 +251,22 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
         : position > value.duration
             ? value.duration
             : position;
-    await _platform.seekTo(_textureId, clamped);
-    value = value.copyWith(position: clamped);
+    try {
+      await _platform.seekTo(_textureId, clamped);
+      value = value.copyWith(position: clamped);
+    } on PlatformException catch (error) {
+      _setPlatformError(error);
+    }
   }
 
   Future<void> setPlaybackSpeed(double speed) async {
     value = value.copyWith(playbackSpeed: speed);
     if (value.isPlaying) {
-      await _platform.setPlaybackSpeed(_textureId, speed);
+      try {
+        await _platform.setPlaybackSpeed(_textureId, speed);
+      } on PlatformException catch (error) {
+        _setPlatformError(error);
+      }
     }
   }
 
@@ -249,19 +280,27 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
         isBuffering: true,
         qualityLabel: quality.label,
       );
-      await _create(MdPlayerSource(
-        videoUrl: quality.videoUrl,
-        audioUrl: quality.audioUrl,
-        qualityLabel: quality.label,
-      ));
-      await seekTo(position);
-      if (wasPlaying) {
-        await play();
+      try {
+        await _create(MdPlayerSource(
+          videoUrl: quality.videoUrl,
+          audioUrl: quality.audioUrl,
+          qualityLabel: quality.label,
+        ));
+        await seekTo(position);
+        if (wasPlaying) {
+          await play();
+        }
+      } on PlatformException catch (error) {
+        _setPlatformError(error);
       }
       return;
     }
-    await MdPlayerAndroid().changeQuality(_textureId, quality.videoUrl);
-    value = value.copyWith(qualityLabel: quality.label);
+    try {
+      await MdPlayerAndroid().changeQuality(_textureId, quality.videoUrl);
+      value = value.copyWith(qualityLabel: quality.label);
+    } on PlatformException catch (error) {
+      _setPlatformError(error);
+    }
   }
 
   @override
@@ -278,11 +317,21 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     _positionTimer = null;
     await _events?.cancel();
     _events = null;
-    if (_creatingCompleter != null && _textureId != kUninitializedTextureId) {
+    final int textureId = _textureId;
+    _textureId = kUninitializedTextureId;
+    if (_creatingCompleter != null && textureId != kUninitializedTextureId) {
       await _creatingCompleter!.future;
-      await _platform.dispose(_textureId);
+      await _platform.dispose(textureId);
     }
     _creatingCompleter = null;
-    _textureId = kUninitializedTextureId;
+  }
+
+  void _setPlatformError(PlatformException error) {
+    _positionTimer?.cancel();
+    value = value.copyWith(
+      isPlaying: false,
+      isBuffering: false,
+      errorDescription: error.message ?? error.toString(),
+    );
   }
 }

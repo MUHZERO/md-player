@@ -158,22 +158,38 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
 
   public void dispose(@NonNull TextureMessage arg) {
     VideoPlayer player = videoPlayers.get(arg.getTextureId());
-    player.dispose();
+    if (player == null) {
+      Log.w(TAG, "Ignoring dispose for missing player " + arg.getTextureId());
+      return;
+    }
     videoPlayers.remove(arg.getTextureId());
+    player.dispose();
   }
 
   public void setLooping(@NonNull LoopingMessage arg) {
     VideoPlayer player = videoPlayers.get(arg.getTextureId());
+    if (player == null) {
+      Log.w(TAG, "Ignoring setLooping for missing player " + arg.getTextureId());
+      return;
+    }
     player.setLooping(arg.getIsLooping());
   }
 
   public void setVolume(@NonNull VolumeMessage arg) {
     VideoPlayer player = videoPlayers.get(arg.getTextureId());
+    if (player == null) {
+      Log.w(TAG, "Ignoring setVolume for missing player " + arg.getTextureId());
+      return;
+    }
     player.setVolume(arg.getVolume());
   }
 
   public void setPlaybackSpeed(@NonNull PlaybackSpeedMessage arg) {
     VideoPlayer player = videoPlayers.get(arg.getTextureId());
+    if (player == null) {
+      Log.w(TAG, "Ignoring setPlaybackSpeed for missing player " + arg.getTextureId());
+      return;
+    }
     player.setPlaybackSpeed(arg.getSpeed());
   }
 
@@ -214,6 +230,13 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
 
   public @NonNull PositionMessage position(@NonNull TextureMessage arg) {
     VideoPlayer player = videoPlayers.get(arg.getTextureId());
+    if (player == null) {
+      Log.w(TAG, "Returning zero position for missing player " + arg.getTextureId());
+      return new PositionMessage.Builder()
+          .setPosition(0L)
+          .setTextureId(arg.getTextureId())
+          .build();
+    }
     PositionMessage result =
         new PositionMessage.Builder()
             .setPosition(player.getPosition())
@@ -225,6 +248,10 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
 
   public void seekTo(@NonNull PositionMessage arg) {
     VideoPlayer player = videoPlayers.get(arg.getTextureId());
+    if (player == null) {
+      Log.w(TAG, "Ignoring seekTo for missing player " + arg.getTextureId());
+      return;
+    }
     player.seekTo(arg.getPosition().intValue());
   }
 

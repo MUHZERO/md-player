@@ -212,13 +212,13 @@ public final class VideoPlayerTest {
     when(mockExoPlayer.getPlaybackParameters()).thenReturn(new PlaybackParameters(2.5f));
 
     TextureRegistry.SurfaceProducer.Callback producerLifecycle = callbackCaptor.getValue();
-    producerLifecycle.onSurfaceDestroyed();
+    producerLifecycle.onSurfaceCleanup();
 
     verify(mockExoPlayer).release();
 
     // Create a new mock exo player so that we get a new instance.
     mockExoPlayer = mock(ExoPlayer.class);
-    producerLifecycle.onSurfaceCreated();
+    producerLifecycle.onSurfaceAvailable();
 
     verify(mockExoPlayer).seekTo(10L);
     verify(mockExoPlayer).setRepeatMode(Player.REPEAT_MODE_ALL);
