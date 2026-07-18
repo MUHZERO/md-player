@@ -45,9 +45,23 @@ class PositionMessage {
 }
 
 class ChangeQualityMessage {
-  ChangeQualityMessage(this.textureId, this.newUrl);
+  ChangeQualityMessage({required this.textureId, required this.newUrl});
   int textureId;
+  // Retained for source compatibility. New callers also set videoUri.
   String newUrl;
+  String? operationId;
+  String? videoUri;
+  String? audioUri;
+  Map<String?, String?>? httpHeaders;
+  String? videoFormatHint;
+  String? audioFormatHint;
+  String? videoCacheKey;
+  String? audioCacheKey;
+  String? videoStreamIdentity;
+  String? audioStreamIdentity;
+  int? videoItag;
+  int? audioItag;
+  String? requestedLabel;
 }
 
 class CreateMessage {

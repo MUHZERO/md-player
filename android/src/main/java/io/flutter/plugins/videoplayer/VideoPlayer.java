@@ -8,42 +8,45 @@ import static androidx.media3.common.Player.REPEAT_MODE_ALL;
 import static androidx.media3.common.Player.REPEAT_MODE_OFF;
 
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
+import android.view.Surface;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
 import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
-import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
 import androidx.media3.common.PlaybackParameters;
+import androidx.media3.common.Player;
+import androidx.media3.common.Timeline;
+import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.source.MediaSource;
-import androidx.media3.exoplayer.source.MergingMediaSource;
-
 import io.flutter.view.TextureRegistry;
+import java.util.HashMap;
+import java.util.Map;
 
 final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
+  static final long PREPARATION_TIMEOUT_MS = 15_000;
+  static final long FIRST_FRAME_TIMEOUT_MS = 8_000;
+  static final long ROLLBACK_TIMEOUT_MS = 15_000;
+  // Active-surface worst case: preparation + first frame + rollback = 38 seconds.
+
   @NonNull private final Context context;
-  @NonNull private final ExoPlayerProvider exoPlayerProvider;
-  @NonNull private VideoAsset videoAsset;
-  @Nullable private final VideoAsset audioAsset;
-
   @NonNull private final TextureRegistry.SurfaceProducer surfaceProducer;
-  @NonNull private final VideoPlayerCallbacks videoPlayerEvents;
-  @NonNull private final VideoPlayerOptions options;
-  @NonNull private ExoPlayer exoPlayer;
-  @Nullable private ExoPlayerState savedStateDuring;
+  @NonNull private final VideoPlayerCallbacks events;
+  @NonNull private final ExoPlayer exoPlayer;
+  @NonNull private final Handler handler;
+  @NonNull private MediaSourceDescriptor lastConfirmedSourceDescriptor;
+  @Nullable private SwitchOperation activeOperation;
+  private long sourceGeneration;
+  private boolean surfaceAvailable;
+  private boolean disposed;
 
-  /**
-   * Creates a video player.
-   *
-   * @param context application context.
-   * @param events event callbacks.
-   * @param surfaceProducer produces a texture to render to.
-   * @param asset asset to play.
-   * @param options options for playback.
-   * @return a video player instance.
-   */
   @NonNull
   static VideoPlayer create(
       @NonNull Context context,
@@ -52,109 +55,341 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
       @NonNull VideoAsset asset,
       @Nullable VideoAsset audio,
       @NonNull VideoPlayerOptions options) {
+    return create(context, events, surfaceProducer, MediaSourceDescriptor.legacy(asset, audio), options);
+  }
+
+  @NonNull
+  static VideoPlayer create(
+      @NonNull Context context,
+      @NonNull VideoPlayerCallbacks events,
+      @NonNull TextureRegistry.SurfaceProducer surfaceProducer,
+      @NonNull MediaSourceDescriptor descriptor,
+      @NonNull VideoPlayerOptions options) {
     return new VideoPlayer(
-        () -> {
-          ExoPlayer.Builder builder =
-              new ExoPlayer.Builder(context)
-                  .setMediaSourceFactory(asset.getMediaSourceFactory(context));
-          return builder.build();
-        },
+        () ->
+            new ExoPlayer.Builder(context)
+                .setMediaSourceFactory(descriptor.videoAsset.getMediaSourceFactory(context))
+                .build(),
         context,
         events,
         surfaceProducer,
-        asset,
-        audio,
-        options);
-  }
-
-  public void updateVideoAsset(VideoAsset newVideoAsset) {
-    long currentPosition = this.getPosition();
-    boolean playWhenReady = this.exoPlayer.getPlayWhenReady();
-    this.videoAsset = newVideoAsset;
-    this.exoPlayer.stop();
-    setMediaSource(this.exoPlayer);
-    this.exoPlayer.prepare();
-    this.exoPlayer.seekTo(currentPosition);
-    this.exoPlayer.setPlayWhenReady(playWhenReady);
-  }
-
-  public boolean isPlaying() {
-    return this.exoPlayer.isPlaying();
+        descriptor,
+        options,
+        new Handler(Looper.getMainLooper()));
   }
 
   /** A closure-compatible signature since {@link java.util.function.Supplier} is API level 24. */
   interface ExoPlayerProvider {
-    /**
-     * Returns a new {@link ExoPlayer}.
-     *
-     * @return new instance.
-     */
     ExoPlayer get();
   }
 
   @VisibleForTesting
   VideoPlayer(
-      @NonNull ExoPlayerProvider exoPlayerProvider,
+      @NonNull ExoPlayerProvider provider,
       @NonNull Context context,
       @NonNull VideoPlayerCallbacks events,
       @NonNull TextureRegistry.SurfaceProducer surfaceProducer,
       @NonNull VideoAsset videoAsset,
       @Nullable VideoAsset audioAsset,
       @NonNull VideoPlayerOptions options) {
+    this(
+        provider,
+        context,
+        events,
+        surfaceProducer,
+        MediaSourceDescriptor.legacy(videoAsset, audioAsset),
+        options,
+        new Handler(Looper.getMainLooper()));
+  }
+
+  @VisibleForTesting
+  VideoPlayer(
+      @NonNull ExoPlayerProvider provider,
+      @NonNull Context context,
+      @NonNull VideoPlayerCallbacks events,
+      @NonNull TextureRegistry.SurfaceProducer surfaceProducer,
+      @NonNull MediaSourceDescriptor descriptor,
+      @NonNull VideoPlayerOptions options,
+      @NonNull Handler handler) {
     this.context = context;
-    this.exoPlayerProvider = exoPlayerProvider;
-    this.videoPlayerEvents = events;
+    this.events = events;
     this.surfaceProducer = surfaceProducer;
-    this.videoAsset = videoAsset;
-    this.audioAsset = audioAsset;
-    this.options = options;
-    this.exoPlayer = createVideoPlayer();
+    this.lastConfirmedSourceDescriptor = descriptor;
+    this.handler = handler;
+    this.exoPlayer = provider.get();
+    setSource(descriptor, 0, "initial");
+    exoPlayer.prepare();
+    attachSurface();
+    exoPlayer.addListener(
+        new ExoPlayerEventListener(exoPlayer, events, this::handlePlaybackError));
+    exoPlayer.addListener(new SwitchListener());
+    exoPlayer.addAnalyticsListener(new FrameListener());
+    setAudioAttributes(exoPlayer, options.mixWithOthers);
     surfaceProducer.setCallback(this);
+  }
+
+  void changeQuality(@NonNull String operationId, @NonNull MediaSourceDescriptor descriptor) {
+    if (disposed) {
+      throw new IllegalStateException("Player is disposed");
+    }
+    PlaybackSnapshot snapshot = PlaybackSnapshot.capture(exoPlayer);
+    SwitchOperation superseded = activeOperation;
+    if (superseded != null) {
+      snapshot = snapshot.withDesired(superseded.desiredPositionMs, superseded.desiredPlayWhenReady);
+    }
+    cancelOperation();
+    SwitchOperation operation =
+        new SwitchOperation(
+            operationId, descriptor, lastConfirmedSourceDescriptor, snapshot, ++sourceGeneration);
+    MediaSource requestedSource = descriptor.build(context, operation.sourceId());
+    activeOperation = operation;
+    emit(operation, "preparing", null, null);
+    try {
+      exoPlayer.setMediaSource(requestedSource, operation.desiredPositionMs);
+      snapshot.restoreSettings(exoPlayer);
+      exoPlayer.setPlayWhenReady(operation.desiredPlayWhenReady);
+      exoPlayer.prepare();
+      emit(operation, "switching", null, null);
+      schedule(operation, PREPARATION_TIMEOUT_MS, "preparation timeout");
+    } catch (RuntimeException error) {
+      fail(operation, "source replacement failed: " + error);
+    }
+  }
+
+  private void setSource(MediaSourceDescriptor descriptor, long positionMs, String sourceId) {
+    MediaSource source = descriptor.build(context, sourceId);
+    exoPlayer.setMediaSource(source, positionMs);
+  }
+
+  private final class SwitchListener implements Player.Listener {
+    @Override
+    public void onPlaybackStateChanged(int state) {
+      if (state == Player.STATE_READY) {
+        onReady();
+      }
+    }
+  }
+
+  private final class FrameListener implements AnalyticsListener {
+    @Override
+    public void onRenderedFirstFrame(
+        @NonNull EventTime eventTime, @NonNull Object output, long renderTimeMs) {
+      SwitchOperation operation = activeOperation;
+      if (operation == null || !operation.ready || !operation.sourceId().equals(sourceId(eventTime))) {
+        return;
+      }
+      finishReadyOperation(operation);
+    }
+  }
+
+  @Nullable
+  private static String sourceId(AnalyticsListener.EventTime eventTime) {
+    Timeline timeline = eventTime.timeline;
+    if (timeline.isEmpty() || eventTime.windowIndex < 0 || eventTime.windowIndex >= timeline.getWindowCount()) {
+      return null;
+    }
+    return timeline.getWindow(eventTime.windowIndex, new Timeline.Window()).mediaItem.mediaId;
+  }
+
+  @VisibleForTesting
+  void onReady() {
+    SwitchOperation operation = activeOperation;
+    if (operation == null) {
+      return;
+    }
+    cancelTimeout(operation);
+    operation.ready = true;
+    if (operation.rollback || !hasSelectedVideoTrack()) {
+      finishReadyOperation(operation);
+      return;
+    }
+    operation.firstFrameRemainingMs = FIRST_FRAME_TIMEOUT_MS;
+    if (surfaceAvailable) {
+      scheduleFirstFrame(operation);
+    }
+  }
+
+  private boolean hasSelectedVideoTrack() {
+    Tracks tracks = exoPlayer.getCurrentTracks();
+    for (Tracks.Group group : tracks.getGroups()) {
+      if (group.getType() == C.TRACK_TYPE_VIDEO && group.isSelected()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @VisibleForTesting
+  void onRenderedFirstFrameForSource(@NonNull String sourceId) {
+    SwitchOperation operation = activeOperation;
+    if (operation != null && operation.ready && operation.sourceId().equals(sourceId)) {
+      finishReadyOperation(operation);
+    }
+  }
+
+  private void finishReadyOperation(SwitchOperation operation) {
+    if (!isCurrent(operation)) {
+      return;
+    }
+    cancelTimeout(operation);
+    if (operation.rollback) {
+      emit(operation, "failed", operation.failureReason, true);
+    } else {
+      lastConfirmedSourceDescriptor = operation.requested;
+      emit(operation, "completed", null, null);
+    }
+    activeOperation = null;
+  }
+
+  private boolean handlePlaybackError(@NonNull PlaybackException error) {
+    if (activeOperation == null) {
+      return false;
+    }
+    fail(activeOperation, "Video player had error " + error);
+    return true;
+  }
+
+  private void fail(SwitchOperation operation, String reason) {
+    if (!isCurrent(operation)) {
+      return;
+    }
+    cancelTimeout(operation);
+    if (operation.rollback) {
+      exoPlayer.stop();
+      emit(operation, "failed", operation.failureReason, false);
+      activeOperation = null;
+      return;
+    }
+    operation.rollback = true;
+    operation.ready = false;
+    operation.failureReason = reason;
+    operation.sourceGeneration = ++sourceGeneration;
+    try {
+      setSource(
+          operation.previous,
+          operation.desiredPositionMs,
+          operation.sourceId());
+      operation.snapshot.restoreSettings(exoPlayer);
+      exoPlayer.setPlayWhenReady(operation.desiredPlayWhenReady);
+      exoPlayer.prepare();
+      schedule(operation, ROLLBACK_TIMEOUT_MS, "rollback preparation timeout");
+    } catch (RuntimeException rollbackError) {
+      exoPlayer.stop();
+      emit(operation, "failed", reason, false);
+      activeOperation = null;
+    }
+  }
+
+  private void schedule(SwitchOperation operation, long delayMs, String reason) {
+    operation.timeout = () -> fail(operation, reason);
+    handler.postDelayed(operation.timeout, delayMs);
+  }
+
+  private void scheduleFirstFrame(SwitchOperation operation) {
+    operation.firstFrameDeadlineMs = SystemClock.uptimeMillis() + operation.firstFrameRemainingMs;
+    schedule(operation, operation.firstFrameRemainingMs, "first frame timeout");
+  }
+
+  private void suspendFirstFrameTimeout() {
+    SwitchOperation operation = activeOperation;
+    if (operation == null || !operation.ready || operation.timeout == null) {
+      return;
+    }
+    operation.firstFrameRemainingMs =
+        Math.max(1, operation.firstFrameDeadlineMs - SystemClock.uptimeMillis());
+    cancelTimeout(operation);
+  }
+
+  private void cancelTimeout(SwitchOperation operation) {
+    if (operation.timeout != null) {
+      handler.removeCallbacks(operation.timeout);
+      operation.timeout = null;
+    }
+  }
+
+  private void cancelOperation() {
+    SwitchOperation operation = activeOperation;
+    if (operation != null) {
+      cancelTimeout(operation);
+      activeOperation = null;
+    }
+  }
+
+  private boolean isCurrent(SwitchOperation operation) {
+    return !disposed && activeOperation == operation;
+  }
+
+  private void emit(
+      SwitchOperation operation,
+      String phase,
+      @Nullable String errorDescription,
+      @Nullable Boolean rollbackSucceeded) {
+    if (!isCurrent(operation)) {
+      return;
+    }
+    Map<String, Object> event = new HashMap<>();
+    event.put("event", "qualitySwitch");
+    event.put("operationId", operation.id);
+    event.put("phase", phase);
+    if (operation.requested.qualityLabel != null) {
+      event.put("requestedLabel", operation.requested.qualityLabel);
+    }
+    if (errorDescription != null) {
+      event.put("errorDescription", errorDescription);
+    }
+    if (rollbackSucceeded != null) {
+      event.put("rollbackSucceeded", rollbackSucceeded);
+    }
+    events.onQualitySwitch(event);
   }
 
   @RestrictTo(RestrictTo.Scope.LIBRARY)
   @SuppressWarnings("removal")
   public void onSurfaceCreated() {
-    exoPlayer = createVideoPlayer();
-    if (savedStateDuring != null) {
-      savedStateDuring.restore(exoPlayer);
-      savedStateDuring = null;
-    }
+    onSurfaceAvailable();
   }
 
   @RestrictTo(RestrictTo.Scope.LIBRARY)
   @SuppressWarnings("removal")
   public void onSurfaceDestroyed() {
-    exoPlayer.stop();
-    savedStateDuring = ExoPlayerState.save(exoPlayer);
-    exoPlayer.release();
+    onSurfaceCleanup();
   }
 
-  private ExoPlayer createVideoPlayer() {
-    ExoPlayer exoPlayer = exoPlayerProvider.get();
-    setMediaSource(exoPlayer);
-    exoPlayer.prepare();
-    exoPlayer.setVideoSurface(surfaceProducer.getSurface());
-    exoPlayer.addListener(new ExoPlayerEventListener(exoPlayer, videoPlayerEvents));
-    setAudioAttributes(exoPlayer, options.mixWithOthers);
-
-    return exoPlayer;
-  }
-
-  private void setMediaSource(ExoPlayer exoPlayer) {
-    if (audioAsset == null) {
-      exoPlayer.setMediaItem(videoAsset.getMediaItem());
+  @Override
+  public void onSurfaceAvailable() {
+    if (disposed) {
       return;
     }
-    MediaSource videoSource =
-        videoAsset.getMediaSourceFactory(context).createMediaSource(videoAsset.getMediaItem());
-    MediaSource audioSource =
-        audioAsset.getMediaSourceFactory(context).createMediaSource(audioAsset.getMediaItem());
-    exoPlayer.setMediaSource(new MergingMediaSource(videoSource, audioSource));
+    attachSurface();
+    SwitchOperation operation = activeOperation;
+    if (surfaceAvailable
+        && operation != null
+        && operation.ready
+        && operation.timeout == null) {
+      scheduleFirstFrame(operation);
+    }
+  }
+
+  private void attachSurface() {
+    Surface surface = surfaceProducer.getSurface();
+    surfaceAvailable = surface != null && surface.isValid();
+    if (surfaceAvailable) {
+      exoPlayer.setVideoSurface(surface);
+    }
+  }
+
+  @Override
+  public void onSurfaceCleanup() {
+    if (disposed) {
+      return;
+    }
+    surfaceAvailable = false;
+    suspendFirstFrameTimeout();
+    exoPlayer.clearVideoSurface();
   }
 
   void sendBufferingUpdate() {
-    videoPlayerEvents.onBufferingUpdate(exoPlayer.getBufferedPosition());
+    events.onBufferingUpdate(exoPlayer.getBufferedPosition());
   }
 
   private static void setAudioAttributes(ExoPlayer exoPlayer, boolean isMixMode) {
@@ -164,14 +399,18 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
   }
 
   void play() {
+    SwitchOperation operation = activeOperation;
+    if (operation != null) {
+      operation.desiredPlayWhenReady = true;
+    }
     exoPlayer.play();
   }
 
-  void playWhenReady() {
-    exoPlayer.setPlayWhenReady(true);
-  }
-
   void pause() {
+    SwitchOperation operation = activeOperation;
+    if (operation != null) {
+      operation.desiredPlayWhenReady = false;
+    }
     exoPlayer.pause();
   }
 
@@ -180,19 +419,18 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
   }
 
   void setVolume(double value) {
-    float bracketedValue = (float) Math.max(0.0, Math.min(1.0, value));
-    exoPlayer.setVolume(bracketedValue);
+    exoPlayer.setVolume((float) Math.max(0.0, Math.min(1.0, value)));
   }
 
   void setPlaybackSpeed(double value) {
-    // We do not need to consider pitch and skipSilence for now as we do not handle them and
-    // therefore never diverge from the default values.
-    final PlaybackParameters playbackParameters = new PlaybackParameters(((float) value));
-
-    exoPlayer.setPlaybackParameters(playbackParameters);
+    exoPlayer.setPlaybackParameters(new PlaybackParameters((float) value));
   }
 
   void seekTo(int location) {
+    SwitchOperation operation = activeOperation;
+    if (operation != null) {
+      operation.desiredPositionMs = location;
+    }
     exoPlayer.seekTo(location);
   }
 
@@ -201,7 +439,104 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
   }
 
   void dispose() {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
+    cancelOperation();
     surfaceProducer.release();
     exoPlayer.release();
+  }
+
+  @VisibleForTesting
+  @Nullable
+  MediaSourceDescriptor getLastConfirmedSourceDescriptor() {
+    return lastConfirmedSourceDescriptor;
+  }
+
+  private static final class PlaybackSnapshot {
+    final long positionMs;
+    final boolean playWhenReady;
+    final PlaybackParameters playbackParameters;
+    final float volume;
+    final int repeatMode;
+    final boolean shuffleModeEnabled;
+
+    static PlaybackSnapshot capture(ExoPlayer player) {
+      return new PlaybackSnapshot(
+          player.getCurrentPosition(),
+          player.getPlayWhenReady(),
+          player.getPlaybackParameters(),
+          player.getVolume(),
+          player.getRepeatMode(),
+          player.getShuffleModeEnabled());
+    }
+
+    PlaybackSnapshot(
+        long positionMs,
+        boolean playWhenReady,
+        PlaybackParameters playbackParameters,
+        float volume,
+        int repeatMode,
+        boolean shuffleModeEnabled) {
+      this.positionMs = positionMs;
+      this.playWhenReady = playWhenReady;
+      this.playbackParameters = playbackParameters;
+      this.volume = volume;
+      this.repeatMode = repeatMode;
+      this.shuffleModeEnabled = shuffleModeEnabled;
+    }
+
+    void restoreSettings(ExoPlayer player) {
+      player.setPlaybackParameters(playbackParameters);
+      player.setVolume(volume);
+      player.setRepeatMode(repeatMode);
+      player.setShuffleModeEnabled(shuffleModeEnabled);
+    }
+
+    PlaybackSnapshot withDesired(long desiredPositionMs, boolean desiredPlayWhenReady) {
+      return new PlaybackSnapshot(
+          desiredPositionMs,
+          desiredPlayWhenReady,
+          playbackParameters,
+          volume,
+          repeatMode,
+          shuffleModeEnabled);
+    }
+  }
+
+  private static final class SwitchOperation {
+    final String id;
+    final MediaSourceDescriptor requested;
+    final MediaSourceDescriptor previous;
+    final PlaybackSnapshot snapshot;
+    long desiredPositionMs;
+    boolean desiredPlayWhenReady;
+    long sourceGeneration;
+    boolean ready;
+    boolean rollback;
+    @Nullable String failureReason;
+    @Nullable Runnable timeout;
+    long firstFrameRemainingMs;
+    long firstFrameDeadlineMs;
+
+    SwitchOperation(
+        String id,
+        MediaSourceDescriptor requested,
+        MediaSourceDescriptor previous,
+        PlaybackSnapshot snapshot,
+        long sourceGeneration) {
+      this.id = id;
+      this.requested = requested;
+      this.previous = previous;
+      this.snapshot = snapshot;
+      this.desiredPositionMs = snapshot.positionMs;
+      this.desiredPlayWhenReady = snapshot.playWhenReady;
+      this.sourceGeneration = sourceGeneration;
+    }
+
+    String sourceId() {
+      return "quality:" + sourceGeneration;
+    }
   }
 }

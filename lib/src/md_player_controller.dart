@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
@@ -8,6 +9,29 @@ import 'android_video_player.dart';
 import 'md_player_source.dart';
 
 const Object _errorDescriptionNotProvided = Object();
+
+enum MdQualitySwitchStatus { idle, preparing, switching, completed, failed }
+
+@immutable
+class MdQualitySwitchState {
+  const MdQualitySwitchState({
+    this.status = MdQualitySwitchStatus.idle,
+    this.operationId,
+    this.requestedLabel,
+    this.errorDescription,
+    this.rollbackSucceeded,
+  });
+
+  final MdQualitySwitchStatus status;
+  final String? operationId;
+  final String? requestedLabel;
+  final String? errorDescription;
+  final bool? rollbackSucceeded;
+
+  bool get isSwitching =>
+      status == MdQualitySwitchStatus.preparing ||
+      status == MdQualitySwitchStatus.switching;
+}
 
 @immutable
 class MdPlayerValue {
@@ -109,8 +133,11 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
   final VideoPlayerPlatform _platform;
 
   Timer? _positionTimer;
-  StreamSubscription<VideoEvent>? _events;
+  StreamSubscription<MdPlayerPlatformEvent>? _events;
+  final ValueNotifier<MdQualitySwitchState> _qualitySwitchState =
+      ValueNotifier<MdQualitySwitchState>(const MdQualitySwitchState());
   Completer<void>? _operationCancellation;
+  Completer<void>? _qualitySwitchCompleter;
   Future<void> _pendingPlayerCleanup = Future<void>.value();
   Future<void>? _disposeFuture;
   int _textureId = kUninitializedTextureId;
@@ -119,10 +146,16 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
   int _positionCommand = 0;
   int _speedCommand = 0;
   int _qualityCommand = 0;
+  int _qualityOperationId = 0;
   bool _positionRequestInFlight = false;
   bool _isDisposed = false;
   bool _resolverClosed = false;
   MdPlayerSource? _source;
+  MdPlayerQuality? _requestedQuality;
+  String? _activeQualityOperationId;
+
+  ValueListenable<MdQualitySwitchState> get qualitySwitchState =>
+      _qualitySwitchState;
 
   @visibleForTesting
   int get textureId => _textureId;
@@ -177,6 +210,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
                 sourceType: DataSourceType.network,
                 uri: source.videoUrl,
                 formatHint: source.formatHint,
+                httpHeaders: source.httpHeaders,
               ),
               viewType: VideoViewType.textureView,
             ),
@@ -185,6 +219,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
             videoUri: source.videoUrl,
             audioUri: source.audioUrl!,
             formatHint: source.formatHint,
+            httpHeaders: source.httpHeaders,
           );
     final (bool, int?) result =
         await _raceCancellation<int?>(creation, operation);
@@ -203,7 +238,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
 
     final Completer<void> initialized = Completer<void>();
-    final StreamSubscription<VideoEvent>? previousEvents = _events;
+    final StreamSubscription<MdPlayerPlatformEvent>? previousEvents = _events;
     _events = null;
     await previousEvents?.cancel();
     if (!_isCurrentOperation(operation)) {
@@ -212,9 +247,9 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
 
     _textureId = textureId;
-    _events = _platform.videoEventsFor(textureId).listen(
-      (VideoEvent event) =>
-          _handleEvent(event, operation, textureId, initialized),
+    _events = _androidPlatform.playerEventsFor(textureId).listen(
+      (MdPlayerPlatformEvent event) =>
+          _handlePlatformEvent(event, operation, textureId, initialized),
       onError: (Object error) {
         if (!_isCurrentPlayer(operation, textureId)) {
           return;
@@ -241,6 +276,66 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
       await play();
     }
     return _isCurrentPlayer(operation, textureId);
+  }
+
+  void _handlePlatformEvent(
+    MdPlayerPlatformEvent event,
+    int operation,
+    int textureId,
+    Completer<void> initialized,
+  ) {
+    final VideoEvent? videoEvent = event.videoEvent;
+    if (videoEvent != null) {
+      _handleEvent(videoEvent, operation, textureId, initialized);
+    }
+    final MdQualitySwitchEvent? qualityEvent = event.qualityEvent;
+    if (qualityEvent != null) {
+      _handleQualityEvent(qualityEvent, operation, textureId);
+    }
+  }
+
+  void _handleQualityEvent(
+    MdQualitySwitchEvent event,
+    int operation,
+    int textureId,
+  ) {
+    if (!_isCurrentPlayer(operation, textureId) ||
+        event.operationId != _activeQualityOperationId) {
+      return;
+    }
+    final MdQualitySwitchStatus status = MdQualitySwitchStatus.values.byName(
+      event.phase.name,
+    );
+    _qualitySwitchState.value = MdQualitySwitchState(
+      status: status,
+      operationId: event.operationId,
+      requestedLabel: event.requestedLabel,
+      errorDescription: event.errorDescription,
+      rollbackSucceeded: event.rollbackSucceeded,
+    );
+    if (!event.isTerminal) {
+      return;
+    }
+    if (event.phase == MdQualitySwitchPhase.completed) {
+      final MdPlayerQuality? quality = _requestedQuality;
+      if (quality != null) {
+        value = value.copyWith(qualityLabel: quality.label);
+        _source = MdPlayerSource(
+          videoUrl: quality.videoUrl,
+          audioUrl: quality.audioUrl,
+          formatHint: quality.videoFormatHint,
+          httpHeaders: quality.httpHeaders,
+          qualityLabel: quality.label,
+          qualities: _source?.qualities ?? const <MdPlayerQuality>[],
+        );
+      }
+    }
+    final Completer<void>? completer = _qualitySwitchCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete();
+    }
+    _qualitySwitchCompleter = null;
+    _requestedQuality = null;
   }
 
   void _handleEvent(
@@ -397,59 +492,44 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
   }
 
+  /// Starts a quality switch on the current player.
+  ///
+  /// For compatibility, this future completes when Android accepts the
+  /// request. Observe [qualitySwitchState] for terminal success or failure.
   Future<void> setQuality(MdPlayerQuality quality) async {
     if (!_hasActivePlayer) {
       return;
     }
     final int qualityCommand = ++_qualityCommand;
-    if (quality.audioUrl != null) {
-      final Duration position = value.position;
-      final bool wasPlaying = value.isPlaying;
-      final int operation = _beginPlayerOperation(invalidateQuality: false);
-      await _releaseActivePlayer();
-      if (!_isCurrentQuality(operation, qualityCommand)) {
-        return;
-      }
-      value = value.copyWith(
-        isInitialized: false,
-        isBuffering: true,
-        qualityLabel: quality.label,
-      );
-      try {
-        final MdPlayerSource source = MdPlayerSource(
-          videoUrl: quality.videoUrl,
-          audioUrl: quality.audioUrl,
-          qualityLabel: quality.label,
-          qualities: _source?.qualities ?? const <MdPlayerQuality>[],
-        );
-        _source = source;
-        if (!await _create(source, operation) ||
-            !_isCurrentQuality(operation, qualityCommand)) {
-          return;
-        }
-        await seekTo(position);
-        if (wasPlaying && _isCurrentQuality(operation, qualityCommand)) {
-          await play();
-        }
-      } on PlatformException catch (error) {
-        _setPlatformError(
-          error,
-          operation: operation,
-          textureId: _textureId,
-          qualityCommand: qualityCommand,
-        );
-      }
-      return;
-    }
-
     final int textureId = _textureId;
     final int operation = _playerOperation;
+    _completePendingQualitySwitch();
+    final String operationId = '$textureId-${++_qualityOperationId}';
+    _activeQualityOperationId = operationId;
+    _requestedQuality = quality;
+    _qualitySwitchCompleter = Completer<void>();
+    _qualitySwitchState.value = MdQualitySwitchState(
+      status: MdQualitySwitchStatus.preparing,
+      operationId: operationId,
+      requestedLabel: quality.label,
+    );
     try {
-      await _androidPlatform.changeQuality(textureId, quality.videoUrl);
-      if (_isCurrentQuality(operation, qualityCommand) &&
-          _textureId == textureId) {
-        value = value.copyWith(qualityLabel: quality.label);
-      }
+      await _androidPlatform.changeQuality(
+        textureId,
+        quality.videoUrl,
+        operationId: operationId,
+        audioUri: quality.audioUrl,
+        httpHeaders: quality.httpHeaders,
+        videoFormatHint: quality.videoFormatHint,
+        audioFormatHint: quality.audioFormatHint,
+        videoCacheKey: quality.videoCacheKey,
+        audioCacheKey: quality.audioCacheKey,
+        videoStreamIdentity: quality.videoStreamIdentity,
+        audioStreamIdentity: quality.audioStreamIdentity,
+        videoItag: quality.videoItag,
+        audioItag: quality.audioItag,
+        requestedLabel: quality.label,
+      );
     } on PlatformException catch (error) {
       _setPlatformError(
         error,
@@ -457,6 +537,15 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
         textureId: textureId,
         qualityCommand: qualityCommand,
       );
+      if (_isCurrentQuality(operation, qualityCommand)) {
+        _qualitySwitchState.value = MdQualitySwitchState(
+          status: MdQualitySwitchStatus.failed,
+          operationId: operationId,
+          requestedLabel: quality.label,
+          errorDescription: error.message ?? error.toString(),
+        );
+        _completePendingQualitySwitch();
+      }
     }
   }
 
@@ -475,6 +564,8 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     _positionCommand++;
     _speedCommand++;
     _qualityCommand++;
+    _completePendingQualitySwitch();
+    _qualitySwitchState.value = const MdQualitySwitchState();
     final Future<void> cleanup = _releaseActivePlayer();
     return _disposeFuture = _finishDispose(cleanup);
   }
@@ -490,6 +581,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
         }
       } finally {
         super.dispose();
+        _qualitySwitchState.dispose();
       }
     }
   }
@@ -502,6 +594,8 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     _speedCommand++;
     if (invalidateQuality) {
       _qualityCommand++;
+      _completePendingQualitySwitch();
+      _qualitySwitchState.value = const MdQualitySwitchState();
     }
     _invalidatePosition();
     return _playerOperation;
@@ -531,7 +625,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
 
   Future<void> _releaseActivePlayer({bool swallowErrors = false}) {
     _invalidatePosition();
-    final StreamSubscription<VideoEvent>? events = _events;
+    final StreamSubscription<MdPlayerPlatformEvent>? events = _events;
     final int textureId = _textureId;
     _events = null;
     _textureId = kUninitializedTextureId;
@@ -543,6 +637,16 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     });
     _pendingPlayerCleanup = cleanup.then<void>((_) {}, onError: (_) {});
     return swallowErrors ? cleanup.catchError((_) {}) : cleanup;
+  }
+
+  void _completePendingQualitySwitch() {
+    final Completer<void>? completer = _qualitySwitchCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete();
+    }
+    _qualitySwitchCompleter = null;
+    _requestedQuality = null;
+    _activeQualityOperationId = null;
   }
 
   Future<void> _disposeStaleTexture(int? textureId) async {

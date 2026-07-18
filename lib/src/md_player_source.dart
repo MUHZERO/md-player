@@ -9,11 +9,29 @@ class MdPlayerQuality {
     required this.label,
     required this.videoUrl,
     this.audioUrl,
+    this.httpHeaders = const <String, String>{},
+    this.videoFormatHint,
+    this.audioFormatHint,
+    this.videoCacheKey,
+    this.audioCacheKey,
+    this.videoStreamIdentity,
+    this.audioStreamIdentity,
+    this.videoItag,
+    this.audioItag,
   });
 
   final String label;
   final String videoUrl;
   final String? audioUrl;
+  final Map<String, String> httpHeaders;
+  final VideoFormat? videoFormatHint;
+  final VideoFormat? audioFormatHint;
+  final String? videoCacheKey;
+  final String? audioCacheKey;
+  final String? videoStreamIdentity;
+  final String? audioStreamIdentity;
+  final int? videoItag;
+  final int? audioItag;
 }
 
 class MdPlayerSource {
@@ -21,6 +39,7 @@ class MdPlayerSource {
     required this.videoUrl,
     this.audioUrl,
     this.formatHint,
+    this.httpHeaders = const <String, String>{},
     this.qualityLabel = 'auto',
     this.qualities = const <MdPlayerQuality>[],
   });
@@ -28,6 +47,7 @@ class MdPlayerSource {
   final String videoUrl;
   final String? audioUrl;
   final VideoFormat? formatHint;
+  final Map<String, String> httpHeaders;
   final String qualityLabel;
   final List<MdPlayerQuality> qualities;
 }

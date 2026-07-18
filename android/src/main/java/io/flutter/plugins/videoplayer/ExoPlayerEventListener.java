@@ -11,14 +11,25 @@ import androidx.media3.common.VideoSize;
 import androidx.media3.exoplayer.ExoPlayer;
 
 final class ExoPlayerEventListener implements Player.Listener {
+  interface PlaybackErrorHandler {
+    boolean handle(@NonNull PlaybackException error);
+  }
+
   private final ExoPlayer exoPlayer;
   private final VideoPlayerCallbacks events;
+  private final PlaybackErrorHandler playbackErrorHandler;
   private boolean isBuffering = false;
   private boolean isInitialized = false;
 
   ExoPlayerEventListener(ExoPlayer exoPlayer, VideoPlayerCallbacks events) {
+    this(exoPlayer, events, error -> false);
+  }
+
+  ExoPlayerEventListener(
+      ExoPlayer exoPlayer, VideoPlayerCallbacks events, PlaybackErrorHandler playbackErrorHandler) {
     this.exoPlayer = exoPlayer;
     this.events = events;
+    this.playbackErrorHandler = playbackErrorHandler;
   }
 
   private void setBuffering(boolean buffering) {
@@ -85,6 +96,9 @@ final class ExoPlayerEventListener implements Player.Listener {
   @Override
   public void onPlayerError(@NonNull final PlaybackException error) {
     setBuffering(false);
+    if (playbackErrorHandler.handle(error)) {
+      return;
+    }
     if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
       // See https://exoplayer.dev/live-streaming.html#behindlivewindowexception-and-error_code_behind_live_window
       exoPlayer.seekToDefaultPosition();

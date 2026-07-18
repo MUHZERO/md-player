@@ -27,6 +27,7 @@ import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
 import java.util.Map;
+import java.util.UUID;
 
 import javax.net.ssl.HttpsURLConnection;
 
@@ -108,6 +109,20 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
             ? null
             : VideoAsset.fromRemoteUrl(
                 arg.getAudioUri(), VideoAsset.StreamingFormat.UNKNOWN, arg.getHttpHeaders());
+    final MediaSourceDescriptor descriptor =
+        new MediaSourceDescriptor(
+            videoAsset,
+            audioAsset,
+            arg.getHttpHeaders(),
+            arg.getFormatHint(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
 
     videoPlayers.put(
         handle.id(),
@@ -115,8 +130,7 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
             flutterState.applicationContext,
             VideoPlayerEventCallbacks.bindTo(eventChannel),
             handle,
-            videoAsset,
-            audioAsset,
+            descriptor,
             options));
 
     return new TextureMessage.Builder().setTextureId(handle.id()).build();
@@ -204,28 +218,39 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
 
   public void changeQuality(@NonNull ChangeQualityMessage arg) {
     VideoPlayer player = videoPlayers.get(arg.getTextureId());
-
-    if (player != null) {
-      // Get current position to resume after quality change
-      long currentPosition = player.getPosition();
-      boolean isPlaying = player.isPlaying();
-
-      // Create a new video asset with the new quality URL
-      VideoAsset newQualityVideoAsset =
-          VideoAsset.fromRemoteUrl(
-              arg.getNewUrl(), VideoAsset.StreamingFormat.UNKNOWN, Collections.emptyMap());
-
-      // Update only the video asset of the existing player (keep the same audio asset)
-      player.updateVideoAsset(newQualityVideoAsset);
-
-      // Seek to the current position and resume playback if the video was playing
-      player.seekTo((int) currentPosition);
-      if (isPlaying) {
-        player.playWhenReady();
-      }
-    } else {
-      Log.e("VideoPlayerPlugin", "VideoPlayer instance is null when trying to change quality");
+    if (player == null) {
+      throw new IllegalStateException("Missing player " + arg.getTextureId());
     }
+    String videoUri = arg.getVideoUri() == null ? arg.getNewUrl() : arg.getVideoUri();
+    if (videoUri.trim().isEmpty()) {
+      throw new IllegalArgumentException("Quality video URI is empty");
+    }
+    Map<String, String> headers =
+        arg.getHttpHeaders() == null ? Collections.emptyMap() : arg.getHttpHeaders();
+    VideoAsset video =
+        VideoAsset.fromRemoteUrl(videoUri, streamingFormat(arg.getVideoFormatHint()), headers);
+    VideoAsset audio =
+        arg.getAudioUri() == null || arg.getAudioUri().isEmpty()
+            ? null
+            : VideoAsset.fromRemoteUrl(
+                arg.getAudioUri(), streamingFormat(arg.getAudioFormatHint()), headers);
+    MediaSourceDescriptor descriptor =
+        new MediaSourceDescriptor(
+            video,
+            audio,
+            headers,
+            arg.getVideoFormatHint(),
+            arg.getAudioFormatHint(),
+            arg.getVideoCacheKey(),
+            arg.getAudioCacheKey(),
+            arg.getVideoStreamIdentity(),
+            arg.getAudioStreamIdentity(),
+            arg.getVideoItag(),
+            arg.getAudioItag(),
+            arg.getRequestedLabel());
+    String operationId =
+        arg.getOperationId() == null ? "legacy-" + UUID.randomUUID() : arg.getOperationId();
+    player.changeQuality(operationId, descriptor);
   }
 
   public @NonNull PositionMessage position(@NonNull TextureMessage arg) {

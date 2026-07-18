@@ -19,8 +19,8 @@ class _Resolver extends MdPlayerSourceResolver {
 
 class _Platform extends MdPlayerAndroid {
   final List<Completer<int?>> creations = <Completer<int?>>[];
-  final Map<int, StreamController<VideoEvent>> events =
-      <int, StreamController<VideoEvent>>{};
+  final Map<int, StreamController<MdPlayerPlatformEvent>> events =
+      <int, StreamController<MdPlayerPlatformEvent>>{};
   final List<int> disposed = <int>[];
   final List<int> played = <int>[];
   final List<int> paused = <int>[];
@@ -30,6 +30,8 @@ class _Platform extends MdPlayerAndroid {
   final List<(int, double)> speeds = <(int, double)>[];
   final List<Completer<void>> qualityChanges = <Completer<void>>[];
   final List<(int, String)> qualityTargets = <(int, String)>[];
+  final List<String?> qualityOperationIds = <String?>[];
+  final List<String?> qualityAudioUris = <String?>[];
   Completer<void>? nextPlay;
   Completer<void>? nextDispose;
   Object? creationError;
@@ -66,14 +68,18 @@ class _Platform extends MdPlayerAndroid {
   }
 
   @override
-  Stream<VideoEvent> videoEventsFor(int textureId) {
+  Stream<MdPlayerPlatformEvent> playerEventsFor(int textureId) {
     return (events[textureId] ??=
-            StreamController<VideoEvent>.broadcast(sync: true))
+            StreamController<MdPlayerPlatformEvent>.broadcast(sync: true))
         .stream;
   }
 
   void emit(int textureId, VideoEvent event) {
-    events[textureId]!.add(event);
+    events[textureId]!.add(MdPlayerPlatformEvent.video(event));
+  }
+
+  void emitQuality(int textureId, MdQualitySwitchEvent event) {
+    events[textureId]!.add(MdPlayerPlatformEvent.quality(event));
   }
 
   @override
@@ -119,8 +125,25 @@ class _Platform extends MdPlayerAndroid {
   }
 
   @override
-  Future<void> changeQuality(int textureId, String newQuality) {
+  Future<void> changeQuality(
+    int textureId,
+    String newQuality, {
+    String? operationId,
+    String? audioUri,
+    Map<String, String> httpHeaders = const <String, String>{},
+    VideoFormat? videoFormatHint,
+    VideoFormat? audioFormatHint,
+    String? videoCacheKey,
+    String? audioCacheKey,
+    String? videoStreamIdentity,
+    String? audioStreamIdentity,
+    int? videoItag,
+    int? audioItag,
+    String? requestedLabel,
+  }) {
     qualityTargets.add((textureId, newQuality));
+    qualityOperationIds.add(operationId);
+    qualityAudioUris.add(audioUri);
     final Completer<void> change = Completer<void>();
     qualityChanges.add(change);
     return change.future;
@@ -458,12 +481,31 @@ void main() {
     platform.qualityChanges.first.complete();
     await first;
 
+    platform.emitQuality(
+      12,
+      MdQualitySwitchEvent(
+        operationId: platform.qualityOperationIds.first!,
+        phase: MdQualitySwitchPhase.completed,
+        requestedLabel: '720p',
+      ),
+    );
+    expect(controller.value.qualityLabel, 'auto');
+    platform.emitQuality(
+      12,
+      MdQualitySwitchEvent(
+        operationId: platform.qualityOperationIds.last!,
+        phase: MdQualitySwitchPhase.completed,
+        requestedLabel: '1080p',
+      ),
+    );
+
     expect(controller.value.qualityLabel, '1080p');
     expect(platform.qualityTargets, <(int, String)>[(12, '720'), (12, '1080')]);
     await controller.dispose();
   });
 
-  test('separate-stream quality replaces the owned texture', () async {
+  test('separate-stream quality keeps the texture and restores nothing in Dart',
+      () async {
     final _Resolver resolver = _Resolver();
     final _Platform platform = _Platform();
     final MdPlayerController controller = MdPlayerController.network('url',
@@ -480,16 +522,126 @@ void main() {
       ),
     );
     await _flush();
-    platform.creations.last.complete(17);
-    await _flush();
-    platform.emit(17, _initialized());
+    platform.qualityChanges.single.complete();
     await quality;
 
-    expect(controller.textureId, 17);
+    expect(controller.textureId, 16);
+    expect(controller.value.qualityLabel, 'auto');
+    expect(platform.qualityAudioUris.single, 'audio');
+    expect(platform.disposed, isEmpty);
+    expect(platform.seeks, <(int, Duration)>[
+      (16, const Duration(seconds: 6)),
+    ]);
+    expect(platform.played, isEmpty);
+
+    platform.emitQuality(
+      16,
+      MdQualitySwitchEvent(
+        operationId: platform.qualityOperationIds.single!,
+        phase: MdQualitySwitchPhase.completed,
+        requestedLabel: '720p',
+      ),
+    );
+
     expect(controller.value.qualityLabel, '720p');
-    expect(platform.disposed, contains(16));
-    expect(platform.seeks.last, (17, const Duration(seconds: 6)));
     await controller.dispose();
+  });
+
+  test('setQuality future completes on acceptance before terminal event',
+      () async {
+    final _Resolver resolver = _Resolver();
+    final _Platform platform = _Platform();
+    final MdPlayerController controller = MdPlayerController.network('url',
+        resolver: resolver, platform: platform);
+    await _finishInitialization(
+        controller.initialize(), resolver, platform, 18);
+
+    final Future<void> accepted = controller.setQuality(
+      const MdPlayerQuality(label: '720p', videoUrl: '720'),
+    );
+    await _flush();
+    platform.qualityChanges.single.complete();
+    await accepted;
+
+    expect(controller.value.qualityLabel, 'auto');
+    expect(controller.qualitySwitchState.value.status,
+        MdQualitySwitchStatus.preparing);
+    platform.emitQuality(
+      18,
+      MdQualitySwitchEvent(
+        operationId: platform.qualityOperationIds.single!,
+        phase: MdQualitySwitchPhase.switching,
+        requestedLabel: '720p',
+      ),
+    );
+    expect(controller.qualitySwitchState.value.status,
+        MdQualitySwitchStatus.switching);
+    await controller.dispose();
+  });
+
+  test('failed switch publishes rollback outcome without changing label',
+      () async {
+    final _Resolver resolver = _Resolver();
+    final _Platform platform = _Platform();
+    final MdPlayerController controller = MdPlayerController.network('url',
+        resolver: resolver, platform: platform);
+    await _finishInitialization(
+        controller.initialize(), resolver, platform, 19);
+    final Future<void> accepted = controller.setQuality(
+      const MdPlayerQuality(label: '720p', videoUrl: '720'),
+    );
+    await _flush();
+    platform.qualityChanges.single.complete();
+    await accepted;
+
+    platform.emitQuality(
+      19,
+      MdQualitySwitchEvent(
+        operationId: platform.qualityOperationIds.single!,
+        phase: MdQualitySwitchPhase.failed,
+        requestedLabel: '720p',
+        errorDescription: 'decoder failed',
+        rollbackSucceeded: true,
+      ),
+    );
+
+    expect(controller.value.qualityLabel, 'auto');
+    expect(controller.qualitySwitchState.value.status,
+        MdQualitySwitchStatus.failed);
+    expect(controller.qualitySwitchState.value.rollbackSucceeded, true);
+    await controller.dispose();
+  });
+
+  test('initialization invalidates an accepted quality operation', () async {
+    final _Resolver resolver = _Resolver();
+    final _Platform platform = _Platform();
+    final MdPlayerController controller = MdPlayerController.network('url',
+        resolver: resolver, platform: platform);
+    await _finishInitialization(
+        controller.initialize(), resolver, platform, 20);
+    final Future<void> accepted = controller.setQuality(
+      const MdPlayerQuality(label: '720p', videoUrl: '720'),
+    );
+    await _flush();
+    platform.qualityChanges.single.complete();
+    await accepted;
+    final String staleId = platform.qualityOperationIds.single!;
+
+    final Future<void> reinitialization = controller.initialize();
+    await _flush();
+    expect(
+        controller.qualitySwitchState.value.status, MdQualitySwitchStatus.idle);
+    platform.emitQuality(
+      20,
+      MdQualitySwitchEvent(
+        operationId: staleId,
+        phase: MdQualitySwitchPhase.completed,
+        requestedLabel: '720p',
+      ),
+    );
+    expect(controller.value.qualityLabel, 'auto');
+    await controller.dispose();
+    await reinitialization;
   });
 
   test('controller publishes unmodifiable collection copies', () async {

@@ -368,16 +368,68 @@ class ChangeQualityMessage {
   ChangeQualityMessage({
     required this.textureId,
     required this.newUrl,
+    this.operationId,
+    this.videoUri,
+    this.audioUri,
+    this.httpHeaders,
+    this.videoFormatHint,
+    this.audioFormatHint,
+    this.videoCacheKey,
+    this.audioCacheKey,
+    this.videoStreamIdentity,
+    this.audioStreamIdentity,
+    this.videoItag,
+    this.audioItag,
+    this.requestedLabel,
   });
 
   int textureId;
 
   String newUrl;
 
+  String? operationId;
+
+  String? videoUri;
+
+  String? audioUri;
+
+  Map<String?, String?>? httpHeaders;
+
+  String? videoFormatHint;
+
+  String? audioFormatHint;
+
+  String? videoCacheKey;
+
+  String? audioCacheKey;
+
+  String? videoStreamIdentity;
+
+  String? audioStreamIdentity;
+
+  int? videoItag;
+
+  int? audioItag;
+
+  String? requestedLabel;
+
   List<Object?> _toList() {
     return <Object?>[
       textureId,
       newUrl,
+      operationId,
+      videoUri,
+      audioUri,
+      httpHeaders,
+      videoFormatHint,
+      audioFormatHint,
+      videoCacheKey,
+      audioCacheKey,
+      videoStreamIdentity,
+      audioStreamIdentity,
+      videoItag,
+      audioItag,
+      requestedLabel,
     ];
   }
 
@@ -390,6 +442,20 @@ class ChangeQualityMessage {
     return ChangeQualityMessage(
       textureId: result[0]! as int,
       newUrl: result[1]! as String,
+      operationId: result[2] as String?,
+      videoUri: result[3] as String?,
+      audioUri: result[4] as String?,
+      httpHeaders:
+          (result[5] as Map<Object?, Object?>?)?.cast<String?, String?>(),
+      videoFormatHint: result[6] as String?,
+      audioFormatHint: result[7] as String?,
+      videoCacheKey: result[8] as String?,
+      audioCacheKey: result[9] as String?,
+      videoStreamIdentity: result[10] as String?,
+      audioStreamIdentity: result[11] as String?,
+      videoItag: result[12] as int?,
+      audioItag: result[13] as int?,
+      requestedLabel: result[14] as String?,
     );
   }
 
@@ -403,7 +469,20 @@ class ChangeQualityMessage {
       return true;
     }
     return _deepEquals(textureId, other.textureId) &&
-        _deepEquals(newUrl, other.newUrl);
+        _deepEquals(newUrl, other.newUrl) &&
+        _deepEquals(operationId, other.operationId) &&
+        _deepEquals(videoUri, other.videoUri) &&
+        _deepEquals(audioUri, other.audioUri) &&
+        _deepEquals(httpHeaders, other.httpHeaders) &&
+        _deepEquals(videoFormatHint, other.videoFormatHint) &&
+        _deepEquals(audioFormatHint, other.audioFormatHint) &&
+        _deepEquals(videoCacheKey, other.videoCacheKey) &&
+        _deepEquals(audioCacheKey, other.audioCacheKey) &&
+        _deepEquals(videoStreamIdentity, other.videoStreamIdentity) &&
+        _deepEquals(audioStreamIdentity, other.audioStreamIdentity) &&
+        _deepEquals(videoItag, other.videoItag) &&
+        _deepEquals(audioItag, other.audioItag) &&
+        _deepEquals(requestedLabel, other.requestedLabel);
   }
 
   @override
@@ -412,7 +491,7 @@ class ChangeQualityMessage {
 
   @override
   String toString() {
-    return 'ChangeQualityMessage(textureId: $textureId, newUrl: $newUrl)';
+    return 'ChangeQualityMessage(textureId: $textureId, newUrl: $newUrl, operationId: $operationId, videoUri: $videoUri, audioUri: $audioUri, httpHeaders: $httpHeaders, videoFormatHint: $videoFormatHint, audioFormatHint: $audioFormatHint, videoCacheKey: $videoCacheKey, audioCacheKey: $audioCacheKey, videoStreamIdentity: $videoStreamIdentity, audioStreamIdentity: $audioStreamIdentity, videoItag: $videoItag, audioItag: $audioItag, requestedLabel: $requestedLabel)';
   }
 }
 

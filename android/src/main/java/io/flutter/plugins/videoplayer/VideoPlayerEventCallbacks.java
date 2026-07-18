@@ -101,4 +101,9 @@ final class VideoPlayerEventCallbacks implements VideoPlayerCallbacks {
     event.put("isPlaying", isPlaying);
     eventSink.success(event);
   }
+
+  @Override
+  public void onQualitySwitch(@NonNull Map<String, Object> event) {
+    eventSink.success(event);
+  }
 }

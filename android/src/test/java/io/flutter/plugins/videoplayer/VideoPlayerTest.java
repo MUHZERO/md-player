@@ -5,15 +5,19 @@
 package io.flutter.plugins.videoplayer;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import static org.robolectric.Shadows.shadowOf;
 
 import android.view.Surface;
+import android.os.Looper;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
+import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.test.core.app.ApplicationProvider;
@@ -28,6 +32,9 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.robolectric.RobolectricTestRunner;
+import java.time.Duration;
+import java.util.Collections;
+import java.util.Map;
 
 /**
  * Unit tests for {@link VideoPlayer}.
@@ -42,6 +49,7 @@ import org.robolectric.RobolectricTestRunner;
  * in order to figure out how to set everything up so the player "works".
  */
 @RunWith(RobolectricTestRunner.class)
+@SuppressWarnings("unchecked")
 public final class VideoPlayerTest {
   private static final String FAKE_ASSET_URL = "https://flutter.dev/movie.mp4";
   private FakeVideoAsset fakeVideoAsset;
@@ -57,7 +65,11 @@ public final class VideoPlayerTest {
   @Before
   public void setUp() {
     fakeVideoAsset = new FakeVideoAsset(FAKE_ASSET_URL);
-    when(mockProducer.getSurface()).thenReturn(mock(Surface.class));
+    Surface surface = mock(Surface.class);
+    when(surface.isValid()).thenReturn(true);
+    when(mockProducer.getSurface()).thenReturn(surface);
+    when(mockExoPlayer.getPlaybackParameters()).thenReturn(PlaybackParameters.DEFAULT);
+    when(mockExoPlayer.getCurrentTracks()).thenReturn(Tracks.EMPTY);
   }
 
   private VideoPlayer createVideoPlayer() {
@@ -90,7 +102,7 @@ public final class VideoPlayerTest {
   public void loadsAndPreparesProvidedMediaEnablesAudioFocusByDefault() {
     VideoPlayer videoPlayer = createVideoPlayer();
 
-    verify(mockExoPlayer).setMediaItem(fakeVideoAsset.getMediaItem());
+    verify(mockExoPlayer).setMediaSource(any(MediaSource.class), eq(0L));
     verify(mockExoPlayer).prepare();
     verify(mockProducer).getSurface();
     verify(mockExoPlayer).setVideoSurface(any());
@@ -105,7 +117,7 @@ public final class VideoPlayerTest {
   public void loadsAndPreparesMergedMediaWhenAudioProvided() {
     VideoPlayer videoPlayer = createVideoPlayerWithAudio();
 
-    verify(mockExoPlayer).setMediaSource(any(MediaSource.class));
+    verify(mockExoPlayer).setMediaSource(any(MediaSource.class), eq(0L));
     verify(mockExoPlayer, never()).setMediaItem(any(MediaItem.class));
     verify(mockExoPlayer).prepare();
 
@@ -200,30 +212,21 @@ public final class VideoPlayerTest {
   }
 
   @Test
-  public void onSurfaceProducerDestroyedAndRecreatedReleasesAndThenRecreatesAndResumesPlayer() {
+  public void onSurfaceProducerDestroyedAndRecreatedKeepsTheSamePlayer() {
     VideoPlayer videoPlayer = createVideoPlayer();
 
     verify(mockProducer).setCallback(callbackCaptor.capture());
     verify(mockExoPlayer, never()).release();
 
-    when(mockExoPlayer.getCurrentPosition()).thenReturn(10L);
-    when(mockExoPlayer.getRepeatMode()).thenReturn(Player.REPEAT_MODE_ALL);
-    when(mockExoPlayer.getVolume()).thenReturn(0.5f);
-    when(mockExoPlayer.getPlaybackParameters()).thenReturn(new PlaybackParameters(2.5f));
-
     TextureRegistry.SurfaceProducer.Callback producerLifecycle = callbackCaptor.getValue();
     producerLifecycle.onSurfaceCleanup();
 
-    verify(mockExoPlayer).release();
-
-    // Create a new mock exo player so that we get a new instance.
-    mockExoPlayer = mock(ExoPlayer.class);
+    verify(mockExoPlayer).clearVideoSurface();
+    verify(mockExoPlayer, never()).release();
     producerLifecycle.onSurfaceAvailable();
 
-    verify(mockExoPlayer).seekTo(10L);
-    verify(mockExoPlayer).setRepeatMode(Player.REPEAT_MODE_ALL);
-    verify(mockExoPlayer).setVolume(0.5f);
-    verify(mockExoPlayer).setPlaybackParameters(new PlaybackParameters(2.5f));
+    verify(mockExoPlayer, times(2)).setVideoSurface(any());
+    verify(mockExoPlayer, never()).seekTo(anyLong());
 
     videoPlayer.dispose();
   }
@@ -235,5 +238,156 @@ public final class VideoPlayerTest {
 
     verify(mockProducer).release();
     verify(mockExoPlayer).release();
+  }
+
+  private MediaSourceDescriptor descriptor(String label, boolean withAudio) {
+    return new MediaSourceDescriptor(
+        new FakeVideoAsset("https://flutter.dev/" + label + ".mp4"),
+        withAudio ? new FakeVideoAsset("https://flutter.dev/audio.mp4") : null,
+        Collections.singletonMap("Authorization", "token"),
+        "dash",
+        "other",
+        "video-cache",
+        "audio-cache",
+        "video-stream",
+        "audio-stream",
+        22L,
+        140L,
+        label);
+  }
+
+  @Test
+  public void qualitySwitchUsesSamePlayerAndCompletesAudioOnlyAtReady() {
+    when(mockExoPlayer.getCurrentPosition()).thenReturn(42L);
+    when(mockExoPlayer.getPlayWhenReady()).thenReturn(true);
+    VideoPlayer videoPlayer = createVideoPlayer();
+    MediaSourceDescriptor requested = descriptor("720p", true);
+
+    videoPlayer.changeQuality("operation-1", requested);
+
+    verify(mockExoPlayer).setMediaSource(any(MediaSource.class), eq(42L));
+    verify(mockExoPlayer, times(2)).prepare();
+    verify(mockExoPlayer).setPlayWhenReady(true);
+    verify(mockExoPlayer, never()).seekTo(42L);
+    assertEquals("video-cache", requested.videoCacheKey);
+    assertEquals("audio-stream", requested.audioStreamIdentity);
+
+    videoPlayer.onReady();
+
+    assertSame(requested, videoPlayer.getLastConfirmedSourceDescriptor());
+    ArgumentCaptor<Map<String, Object>> events = ArgumentCaptor.forClass(Map.class);
+    verify(mockEvents, times(3)).onQualitySwitch(events.capture());
+    assertEquals("preparing", events.getAllValues().get(0).get("phase"));
+    assertEquals("switching", events.getAllValues().get(1).get("phase"));
+    assertEquals("completed", events.getAllValues().get(2).get("phase"));
+  }
+
+  @Test
+  public void videoSwitchRequiresCurrentSourceFirstFrame() {
+    Tracks.Group videoGroup = mock(Tracks.Group.class);
+    when(videoGroup.getType()).thenReturn(C.TRACK_TYPE_VIDEO);
+    when(videoGroup.isSelected()).thenReturn(true);
+    when(mockExoPlayer.getCurrentTracks())
+        .thenReturn(new Tracks(Collections.singletonList(videoGroup)));
+    VideoPlayer videoPlayer = createVideoPlayer();
+    MediaSourceDescriptor previous = videoPlayer.getLastConfirmedSourceDescriptor();
+    MediaSourceDescriptor requested = descriptor("1080p", false);
+
+    videoPlayer.changeQuality("operation-2", requested);
+    videoPlayer.onReady();
+    assertSame(previous, videoPlayer.getLastConfirmedSourceDescriptor());
+
+    videoPlayer.onRenderedFirstFrameForSource("quality:0");
+    assertSame(previous, videoPlayer.getLastConfirmedSourceDescriptor());
+    videoPlayer.onRenderedFirstFrameForSource("quality:1");
+    assertSame(requested, videoPlayer.getLastConfirmedSourceDescriptor());
+  }
+
+  @Test
+  public void timeoutRollsBackConfirmedSourceUsingLatestCommands() {
+    when(mockExoPlayer.getCurrentPosition()).thenReturn(7L);
+    VideoPlayer videoPlayer = createVideoPlayer();
+    MediaSourceDescriptor previous = videoPlayer.getLastConfirmedSourceDescriptor();
+    videoPlayer.changeQuality("operation-3", descriptor("720p", false));
+    videoPlayer.seekTo(99);
+    videoPlayer.play();
+    videoPlayer.pause();
+
+    shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(15));
+
+    verify(mockExoPlayer).setMediaSource(any(MediaSource.class), eq(99L));
+    verify(mockExoPlayer, times(2)).setPlayWhenReady(false);
+    assertSame(previous, videoPlayer.getLastConfirmedSourceDescriptor());
+    videoPlayer.onReady();
+
+    ArgumentCaptor<Map<String, Object>> events = ArgumentCaptor.forClass(Map.class);
+    verify(mockEvents, atLeast(3)).onQualitySwitch(events.capture());
+    Map<String, Object> terminal = events.getAllValues().get(events.getAllValues().size() - 1);
+    assertEquals("failed", terminal.get("phase"));
+    assertEquals(true, terminal.get("rollbackSucceeded"));
+  }
+
+  @Test
+  public void surfaceLossSuspendsFirstFrameTimeoutAndDisposalCancelsIt() {
+    Tracks.Group videoGroup = mock(Tracks.Group.class);
+    when(videoGroup.getType()).thenReturn(C.TRACK_TYPE_VIDEO);
+    when(videoGroup.isSelected()).thenReturn(true);
+    when(mockExoPlayer.getCurrentTracks())
+        .thenReturn(new Tracks(Collections.singletonList(videoGroup)));
+    VideoPlayer videoPlayer = createVideoPlayer();
+    verify(mockProducer).setCallback(callbackCaptor.capture());
+    videoPlayer.changeQuality("operation-4", descriptor("720p", false));
+    videoPlayer.onReady();
+
+    callbackCaptor.getValue().onSurfaceCleanup();
+    shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(9));
+    verify(mockExoPlayer, never()).stop();
+    callbackCaptor.getValue().onSurfaceAvailable();
+    videoPlayer.onRenderedFirstFrameForSource("quality:1");
+    assertEquals("720p", videoPlayer.getLastConfirmedSourceDescriptor().qualityLabel);
+
+    callbackCaptor.getValue().onSurfaceCleanup();
+    videoPlayer.dispose();
+    shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30));
+  }
+
+  @Test
+  public void rapidSwitchKeepsDesiredPositionAndRejectsOldCompletion() {
+    when(mockExoPlayer.getCurrentPosition()).thenReturn(5L);
+    VideoPlayer videoPlayer = createVideoPlayer();
+    MediaSourceDescriptor first = descriptor("720p", false);
+    MediaSourceDescriptor second = descriptor("1080p", true);
+    videoPlayer.changeQuality("first", first);
+    videoPlayer.seekTo(88);
+
+    videoPlayer.changeQuality("second", second);
+
+    verify(mockExoPlayer).setMediaSource(any(MediaSource.class), eq(88L));
+    videoPlayer.onRenderedFirstFrameForSource("quality:1");
+    videoPlayer.onReady();
+    assertSame(second, videoPlayer.getLastConfirmedSourceDescriptor());
+  }
+
+  @Test
+  public void rollbackConstructionFailureLeavesDeterministicErrorState() {
+    doNothing()
+        .doNothing()
+        .doThrow(new IllegalStateException("rollback failed"))
+        .when(mockExoPlayer)
+        .setMediaSource(any(MediaSource.class), anyLong());
+    VideoPlayer videoPlayer = createVideoPlayer();
+    videoPlayer.changeQuality("operation-5", descriptor("720p", false));
+
+    shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(15));
+
+    verify(mockExoPlayer).stop();
+    ArgumentCaptor<Map<String, Object>> events = ArgumentCaptor.forClass(Map.class);
+    verify(mockEvents, atLeast(3)).onQualitySwitch(events.capture());
+    Map<String, Object> terminal = events.getAllValues().get(events.getAllValues().size() - 1);
+    assertEquals("failed", terminal.get("phase"));
+    assertEquals(false, terminal.get("rollbackSucceeded"));
+    assertEquals(15_000, VideoPlayer.PREPARATION_TIMEOUT_MS);
+    assertEquals(8_000, VideoPlayer.FIRST_FRAME_TIMEOUT_MS);
+    assertEquals(15_000, VideoPlayer.ROLLBACK_TIMEOUT_MS);
   }
 }

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:md_player_android/src/messages.g.dart';
@@ -226,10 +228,58 @@ void main() {
     });
 
     test('changeQuality', () async {
-      await player.changeQuality(1, 'newUri');
+      await player.changeQuality(
+        1,
+        'newUri',
+        operationId: 'operation-1',
+        audioUri: 'audioUri',
+        httpHeaders: const <String, String>{'Authorization': 'token'},
+        videoFormatHint: VideoFormat.dash,
+        audioFormatHint: VideoFormat.other,
+        videoCacheKey: 'video-cache',
+        audioCacheKey: 'audio-cache',
+        videoStreamIdentity: 'video-stream',
+        audioStreamIdentity: 'audio-stream',
+        videoItag: 22,
+        audioItag: 140,
+        requestedLabel: '720p',
+      );
       expect(log.log.last, 'changeQuality');
       expect(log.changeQualityMessage?.textureId, 1);
       expect(log.changeQualityMessage?.newUrl, 'newUri');
+      expect(log.changeQualityMessage?.videoUri, 'newUri');
+      expect(log.changeQualityMessage?.operationId, 'operation-1');
+      expect(log.changeQualityMessage?.audioUri, 'audioUri');
+      expect(log.changeQualityMessage?.videoFormatHint, 'dash');
+      expect(log.changeQualityMessage?.audioFormatHint, 'other');
+      expect(log.changeQualityMessage?.videoCacheKey, 'video-cache');
+      expect(log.changeQualityMessage?.audioItag, 140);
+      expect(log.changeQualityMessage?.requestedLabel, '720p');
+    });
+
+    test('standard and quality projections share one channel listen', () async {
+      const String mockChannel = 'flutter.io/videoPlayer/videoEvents321';
+      int listens = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMessageHandler(mockChannel, (ByteData? message) async {
+        final MethodCall call =
+            const StandardMethodCodec().decodeMethodCall(message);
+        if (call.method == 'listen') {
+          listens++;
+        }
+        return const StandardMethodCodec().encodeSuccessEnvelope(null);
+      });
+
+      final StreamSubscription<VideoEvent> standard =
+          player.videoEventsFor(321).listen((_) {});
+      final StreamSubscription<MdQualitySwitchEvent> quality =
+          player.qualityEventsFor(321).listen((_) {});
+      await pumpEventQueue();
+
+      expect(listens, 1);
+      await standard.cancel();
+      await quality.cancel();
+      await player.dispose(321);
     });
 
     test('pause', () async {

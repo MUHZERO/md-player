@@ -690,6 +690,136 @@ public class Messages {
       this.newUrl = setterArg;
     }
 
+    private @Nullable String operationId;
+
+    public @Nullable String getOperationId() {
+      return operationId;
+    }
+
+    public void setOperationId(@Nullable String setterArg) {
+      this.operationId = setterArg;
+    }
+
+    private @Nullable String videoUri;
+
+    public @Nullable String getVideoUri() {
+      return videoUri;
+    }
+
+    public void setVideoUri(@Nullable String setterArg) {
+      this.videoUri = setterArg;
+    }
+
+    private @Nullable String audioUri;
+
+    public @Nullable String getAudioUri() {
+      return audioUri;
+    }
+
+    public void setAudioUri(@Nullable String setterArg) {
+      this.audioUri = setterArg;
+    }
+
+    private @Nullable Map<String, String> httpHeaders;
+
+    public @Nullable Map<String, String> getHttpHeaders() {
+      return httpHeaders;
+    }
+
+    public void setHttpHeaders(@Nullable Map<String, String> setterArg) {
+      this.httpHeaders = setterArg;
+    }
+
+    private @Nullable String videoFormatHint;
+
+    public @Nullable String getVideoFormatHint() {
+      return videoFormatHint;
+    }
+
+    public void setVideoFormatHint(@Nullable String setterArg) {
+      this.videoFormatHint = setterArg;
+    }
+
+    private @Nullable String audioFormatHint;
+
+    public @Nullable String getAudioFormatHint() {
+      return audioFormatHint;
+    }
+
+    public void setAudioFormatHint(@Nullable String setterArg) {
+      this.audioFormatHint = setterArg;
+    }
+
+    private @Nullable String videoCacheKey;
+
+    public @Nullable String getVideoCacheKey() {
+      return videoCacheKey;
+    }
+
+    public void setVideoCacheKey(@Nullable String setterArg) {
+      this.videoCacheKey = setterArg;
+    }
+
+    private @Nullable String audioCacheKey;
+
+    public @Nullable String getAudioCacheKey() {
+      return audioCacheKey;
+    }
+
+    public void setAudioCacheKey(@Nullable String setterArg) {
+      this.audioCacheKey = setterArg;
+    }
+
+    private @Nullable String videoStreamIdentity;
+
+    public @Nullable String getVideoStreamIdentity() {
+      return videoStreamIdentity;
+    }
+
+    public void setVideoStreamIdentity(@Nullable String setterArg) {
+      this.videoStreamIdentity = setterArg;
+    }
+
+    private @Nullable String audioStreamIdentity;
+
+    public @Nullable String getAudioStreamIdentity() {
+      return audioStreamIdentity;
+    }
+
+    public void setAudioStreamIdentity(@Nullable String setterArg) {
+      this.audioStreamIdentity = setterArg;
+    }
+
+    private @Nullable Long videoItag;
+
+    public @Nullable Long getVideoItag() {
+      return videoItag;
+    }
+
+    public void setVideoItag(@Nullable Long setterArg) {
+      this.videoItag = setterArg;
+    }
+
+    private @Nullable Long audioItag;
+
+    public @Nullable Long getAudioItag() {
+      return audioItag;
+    }
+
+    public void setAudioItag(@Nullable Long setterArg) {
+      this.audioItag = setterArg;
+    }
+
+    private @Nullable String requestedLabel;
+
+    public @Nullable String getRequestedLabel() {
+      return requestedLabel;
+    }
+
+    public void setRequestedLabel(@Nullable String setterArg) {
+      this.requestedLabel = setterArg;
+    }
+
     /** Constructor is non-public to enforce null safety; use Builder. */
     ChangeQualityMessage() {}
 
@@ -698,18 +828,18 @@ public class Messages {
       if (this == o) { return true; }
       if (o == null || getClass() != o.getClass()) { return false; }
       ChangeQualityMessage that = (ChangeQualityMessage) o;
-      return pigeonDeepEquals(textureId, that.textureId) && pigeonDeepEquals(newUrl, that.newUrl);
+      return pigeonDeepEquals(textureId, that.textureId) && pigeonDeepEquals(newUrl, that.newUrl) && pigeonDeepEquals(operationId, that.operationId) && pigeonDeepEquals(videoUri, that.videoUri) && pigeonDeepEquals(audioUri, that.audioUri) && pigeonDeepEquals(httpHeaders, that.httpHeaders) && pigeonDeepEquals(videoFormatHint, that.videoFormatHint) && pigeonDeepEquals(audioFormatHint, that.audioFormatHint) && pigeonDeepEquals(videoCacheKey, that.videoCacheKey) && pigeonDeepEquals(audioCacheKey, that.audioCacheKey) && pigeonDeepEquals(videoStreamIdentity, that.videoStreamIdentity) && pigeonDeepEquals(audioStreamIdentity, that.audioStreamIdentity) && pigeonDeepEquals(videoItag, that.videoItag) && pigeonDeepEquals(audioItag, that.audioItag) && pigeonDeepEquals(requestedLabel, that.requestedLabel);
     }
 
     @Override
     public int hashCode() {
-      Object[] fields = new Object[] {getClass(), textureId, newUrl};
+      Object[] fields = new Object[] {getClass(), textureId, newUrl, operationId, videoUri, audioUri, httpHeaders, videoFormatHint, audioFormatHint, videoCacheKey, audioCacheKey, videoStreamIdentity, audioStreamIdentity, videoItag, audioItag, requestedLabel};
       return pigeonDeepHashCode(fields);
     }
 
     @Override
     public String toString() {
-      return "ChangeQualityMessage{" + "textureId=" + textureId + ", " + "newUrl=" + newUrl + "}";
+      return "ChangeQualityMessage{" + "textureId=" + textureId + ", " + "newUrl=" + newUrl + ", " + "operationId=" + operationId + ", " + "videoUri=" + videoUri + ", " + "audioUri=" + audioUri + ", " + "httpHeaders=" + httpHeaders + ", " + "videoFormatHint=" + videoFormatHint + ", " + "audioFormatHint=" + audioFormatHint + ", " + "videoCacheKey=" + videoCacheKey + ", " + "audioCacheKey=" + audioCacheKey + ", " + "videoStreamIdentity=" + videoStreamIdentity + ", " + "audioStreamIdentity=" + audioStreamIdentity + ", " + "videoItag=" + videoItag + ", " + "audioItag=" + audioItag + ", " + "requestedLabel=" + requestedLabel + "}";
     }
 
     public static final class Builder {
@@ -730,19 +860,149 @@ public class Messages {
         return this;
       }
 
+      private @Nullable String operationId;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setOperationId(@Nullable String setterArg) {
+        this.operationId = setterArg;
+        return this;
+      }
+
+      private @Nullable String videoUri;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setVideoUri(@Nullable String setterArg) {
+        this.videoUri = setterArg;
+        return this;
+      }
+
+      private @Nullable String audioUri;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setAudioUri(@Nullable String setterArg) {
+        this.audioUri = setterArg;
+        return this;
+      }
+
+      private @Nullable Map<String, String> httpHeaders;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setHttpHeaders(@Nullable Map<String, String> setterArg) {
+        this.httpHeaders = setterArg;
+        return this;
+      }
+
+      private @Nullable String videoFormatHint;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setVideoFormatHint(@Nullable String setterArg) {
+        this.videoFormatHint = setterArg;
+        return this;
+      }
+
+      private @Nullable String audioFormatHint;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setAudioFormatHint(@Nullable String setterArg) {
+        this.audioFormatHint = setterArg;
+        return this;
+      }
+
+      private @Nullable String videoCacheKey;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setVideoCacheKey(@Nullable String setterArg) {
+        this.videoCacheKey = setterArg;
+        return this;
+      }
+
+      private @Nullable String audioCacheKey;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setAudioCacheKey(@Nullable String setterArg) {
+        this.audioCacheKey = setterArg;
+        return this;
+      }
+
+      private @Nullable String videoStreamIdentity;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setVideoStreamIdentity(@Nullable String setterArg) {
+        this.videoStreamIdentity = setterArg;
+        return this;
+      }
+
+      private @Nullable String audioStreamIdentity;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setAudioStreamIdentity(@Nullable String setterArg) {
+        this.audioStreamIdentity = setterArg;
+        return this;
+      }
+
+      private @Nullable Long videoItag;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setVideoItag(@Nullable Long setterArg) {
+        this.videoItag = setterArg;
+        return this;
+      }
+
+      private @Nullable Long audioItag;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setAudioItag(@Nullable Long setterArg) {
+        this.audioItag = setterArg;
+        return this;
+      }
+
+      private @Nullable String requestedLabel;
+
+      @CanIgnoreReturnValue
+      public @NonNull Builder setRequestedLabel(@Nullable String setterArg) {
+        this.requestedLabel = setterArg;
+        return this;
+      }
+
       public @NonNull ChangeQualityMessage build() {
         ChangeQualityMessage pigeonReturn = new ChangeQualityMessage();
         pigeonReturn.setTextureId(textureId);
         pigeonReturn.setNewUrl(newUrl);
+        pigeonReturn.setOperationId(operationId);
+        pigeonReturn.setVideoUri(videoUri);
+        pigeonReturn.setAudioUri(audioUri);
+        pigeonReturn.setHttpHeaders(httpHeaders);
+        pigeonReturn.setVideoFormatHint(videoFormatHint);
+        pigeonReturn.setAudioFormatHint(audioFormatHint);
+        pigeonReturn.setVideoCacheKey(videoCacheKey);
+        pigeonReturn.setAudioCacheKey(audioCacheKey);
+        pigeonReturn.setVideoStreamIdentity(videoStreamIdentity);
+        pigeonReturn.setAudioStreamIdentity(audioStreamIdentity);
+        pigeonReturn.setVideoItag(videoItag);
+        pigeonReturn.setAudioItag(audioItag);
+        pigeonReturn.setRequestedLabel(requestedLabel);
         return pigeonReturn;
       }
     }
 
     @NonNull
     ArrayList<Object> toList() {
-      ArrayList<Object> toListResult = new ArrayList<>(2);
+      ArrayList<Object> toListResult = new ArrayList<>(15);
       toListResult.add(textureId);
       toListResult.add(newUrl);
+      toListResult.add(operationId);
+      toListResult.add(videoUri);
+      toListResult.add(audioUri);
+      toListResult.add(httpHeaders);
+      toListResult.add(videoFormatHint);
+      toListResult.add(audioFormatHint);
+      toListResult.add(videoCacheKey);
+      toListResult.add(audioCacheKey);
+      toListResult.add(videoStreamIdentity);
+      toListResult.add(audioStreamIdentity);
+      toListResult.add(videoItag);
+      toListResult.add(audioItag);
+      toListResult.add(requestedLabel);
       return toListResult;
     }
 
@@ -752,6 +1012,32 @@ public class Messages {
       pigeonResult.setTextureId((Long) textureId);
       Object newUrl = pigeonVar_list.get(1);
       pigeonResult.setNewUrl((String) newUrl);
+      Object operationId = pigeonVar_list.get(2);
+      pigeonResult.setOperationId((String) operationId);
+      Object videoUri = pigeonVar_list.get(3);
+      pigeonResult.setVideoUri((String) videoUri);
+      Object audioUri = pigeonVar_list.get(4);
+      pigeonResult.setAudioUri((String) audioUri);
+      Object httpHeaders = pigeonVar_list.get(5);
+      pigeonResult.setHttpHeaders((Map<String, String>) httpHeaders);
+      Object videoFormatHint = pigeonVar_list.get(6);
+      pigeonResult.setVideoFormatHint((String) videoFormatHint);
+      Object audioFormatHint = pigeonVar_list.get(7);
+      pigeonResult.setAudioFormatHint((String) audioFormatHint);
+      Object videoCacheKey = pigeonVar_list.get(8);
+      pigeonResult.setVideoCacheKey((String) videoCacheKey);
+      Object audioCacheKey = pigeonVar_list.get(9);
+      pigeonResult.setAudioCacheKey((String) audioCacheKey);
+      Object videoStreamIdentity = pigeonVar_list.get(10);
+      pigeonResult.setVideoStreamIdentity((String) videoStreamIdentity);
+      Object audioStreamIdentity = pigeonVar_list.get(11);
+      pigeonResult.setAudioStreamIdentity((String) audioStreamIdentity);
+      Object videoItag = pigeonVar_list.get(12);
+      pigeonResult.setVideoItag((Long) videoItag);
+      Object audioItag = pigeonVar_list.get(13);
+      pigeonResult.setAudioItag((Long) audioItag);
+      Object requestedLabel = pigeonVar_list.get(14);
+      pigeonResult.setRequestedLabel((String) requestedLabel);
       return pigeonResult;
     }
   }
