@@ -210,7 +210,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
       if (operation == null) {
         return;
       }
-      if (!operation.ready || !operation.sourceId().equals(sourceId(eventTime))) {
+      if (!operation.sourceId().equals(sourceId(eventTime))) {
         if (debugEnabled) {
           rejectedStaleFrameCount++;
         }
@@ -220,7 +220,10 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
         acceptedFrameCount++;
       }
       diagnostic(operation, "firstFrameNanos", SystemClock.elapsedRealtimeNanos());
-      finishReadyOperation(operation);
+      operation.firstFrame = true;
+      if (operation.ready) {
+        finishReadyOperation(operation);
+      }
     }
   }
 
@@ -246,6 +249,10 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
       finishReadyOperation(operation);
       return;
     }
+    if (operation.firstFrame) {
+      finishReadyOperation(operation);
+      return;
+    }
     operation.firstFrameRemainingMs = FIRST_FRAME_TIMEOUT_MS;
     if (surfaceAvailable) {
       scheduleFirstFrame(operation);
@@ -265,12 +272,15 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
   @VisibleForTesting
   void onRenderedFirstFrameForSource(@NonNull String sourceId) {
     SwitchOperation operation = activeOperation;
-    if (operation != null && operation.ready && operation.sourceId().equals(sourceId)) {
+    if (operation != null && operation.sourceId().equals(sourceId)) {
       if (debugEnabled) {
         acceptedFrameCount++;
       }
       diagnostic(operation, "firstFrameNanos", SystemClock.elapsedRealtimeNanos());
-      finishReadyOperation(operation);
+      operation.firstFrame = true;
+      if (operation.ready) {
+        finishReadyOperation(operation);
+      }
     } else {
       if (debugEnabled) {
         rejectedStaleFrameCount++;
@@ -647,6 +657,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     boolean desiredPlayWhenReady;
     long sourceGeneration;
     boolean ready;
+    boolean firstFrame;
     boolean rollback;
     @Nullable String failureReason;
     @Nullable Runnable timeout;

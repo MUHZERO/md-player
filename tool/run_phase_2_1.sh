@@ -44,4 +44,5 @@ while [ "$i" -le "$repetitions" ]; do
   i=$((i + 1))
 done
 
-echo "Completed $repetitions repetition(s); raw reports: $reports"
+dart "$root/tool/aggregate_phase_2_1.dart" "$reports" "$repetitions"
+echo "Completed $repetitions repetition(s); reports: $reports"

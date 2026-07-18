@@ -10,6 +10,6 @@ video. Outputs are `audio.m4a`, H.264 video-only `low.mp4` (320×180) and
 retains the fast-start MP4 container metadata and a deliberately truncated
 `mdat` payload. `SHA256SUMS` and `FFMPEG_VERSION` record exact provenance.
 
-Generated binaries are intentionally absent until the script succeeds. This
-private directory is registered only for integration assets; the public demo
-does not reference its contents.
+The generated binaries and provenance files are committed so device runs use
+identical inputs. This private directory is registered only for integration
+assets; the public demo does not reference its contents.

@@ -304,6 +304,25 @@ public final class VideoPlayerTest {
   }
 
   @Test
+  public void videoSwitchRemembersFirstFrameDeliveredBeforeReady() {
+    Tracks.Group videoGroup = mock(Tracks.Group.class);
+    when(videoGroup.getType()).thenReturn(C.TRACK_TYPE_VIDEO);
+    when(videoGroup.isSelected()).thenReturn(true);
+    when(mockExoPlayer.getCurrentTracks())
+        .thenReturn(new Tracks(Collections.singletonList(videoGroup)));
+    VideoPlayer videoPlayer = createVideoPlayer();
+    MediaSourceDescriptor previous = videoPlayer.getLastConfirmedSourceDescriptor();
+    MediaSourceDescriptor requested = descriptor("720p", false);
+
+    videoPlayer.changeQuality("early-frame", requested);
+    videoPlayer.onRenderedFirstFrameForSource("quality:1");
+    assertSame(previous, videoPlayer.getLastConfirmedSourceDescriptor());
+
+    videoPlayer.onReady();
+    assertSame(requested, videoPlayer.getLastConfirmedSourceDescriptor());
+  }
+
+  @Test
   public void timeoutRollsBackConfirmedSourceUsingLatestCommands() {
     when(mockExoPlayer.getCurrentPosition()).thenReturn(7L);
     VideoPlayer videoPlayer = createVideoPlayer();
