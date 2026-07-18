@@ -31,4 +31,12 @@ public class VideoPlayerPluginTest {
     assertEquals(404L, position.getTextureId().longValue());
     assertEquals(0L, position.getPosition().longValue());
   }
+
+  @Test
+  public void emptyDiagnosticsSnapshotHasStableCounters() {
+    final VideoPlayerPlugin plugin = new VideoPlayerPlugin();
+
+    assertEquals(0, plugin.debugSnapshot().get("playerCreateCount"));
+    assertEquals(0, plugin.debugSnapshot().get("playerDisposeCount"));
+  }
 }

@@ -8,6 +8,7 @@ import static androidx.media3.common.Player.REPEAT_MODE_ALL;
 import static androidx.media3.common.Player.REPEAT_MODE_OFF;
 
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -27,7 +28,10 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.source.MediaSource;
 import io.flutter.view.TextureRegistry;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
@@ -41,11 +45,19 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
   @NonNull private final VideoPlayerCallbacks events;
   @NonNull private final ExoPlayer exoPlayer;
   @NonNull private final Handler handler;
+  private final boolean debugEnabled;
   @NonNull private MediaSourceDescriptor lastConfirmedSourceDescriptor;
   @Nullable private SwitchOperation activeOperation;
   private long sourceGeneration;
   private boolean surfaceAvailable;
   private boolean disposed;
+  private int replacementCount;
+  private int rollbackCount;
+  private int acceptedFrameCount;
+  private int rejectedStaleFrameCount;
+  private int surfaceLossCount;
+  private long lastSurfaceAttachmentNanos;
+  @NonNull private final List<Map<String, Object>> operationHistory = new ArrayList<>();
 
   @NonNull
   static VideoPlayer create(
@@ -116,6 +128,8 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     this.surfaceProducer = surfaceProducer;
     this.lastConfirmedSourceDescriptor = descriptor;
     this.handler = handler;
+    this.debugEnabled =
+        (context.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     this.exoPlayer = provider.get();
     setSource(descriptor, 0, "initial");
     exoPlayer.prepare();
@@ -141,11 +155,29 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     SwitchOperation operation =
         new SwitchOperation(
             operationId, descriptor, lastConfirmedSourceDescriptor, snapshot, ++sourceGeneration);
+    if (debugEnabled) {
+      replacementCount++;
+      operation.diagnostics = new LinkedHashMap<>();
+      diagnostic(operation, "operationId", operationId);
+      diagnostic(operation, "requestedQuality", label(descriptor));
+      diagnostic(operation, "previousQuality", label(lastConfirmedSourceDescriptor));
+      diagnostic(operation, "state", "active");
+      diagnostic(operation, "requestNanos", SystemClock.elapsedRealtimeNanos());
+      diagnostic(operation, "requestPositionMs", snapshot.positionMs);
+      diagnostic(operation, "desiredPositionMs", snapshot.positionMs);
+      diagnostic(operation, "desiredPlayWhenReady", snapshot.playWhenReady);
+      diagnostic(operation, "sourceGeneration", operation.sourceGeneration);
+      operationHistory.add(operation.diagnostics);
+      if (operationHistory.size() > 64) {
+        operationHistory.remove(0);
+      }
+    }
     MediaSource requestedSource = descriptor.build(context, operation.sourceId());
     activeOperation = operation;
     emit(operation, "preparing", null, null);
     try {
       exoPlayer.setMediaSource(requestedSource, operation.desiredPositionMs);
+      diagnostic(operation, "acceptanceNanos", SystemClock.elapsedRealtimeNanos());
       snapshot.restoreSettings(exoPlayer);
       exoPlayer.setPlayWhenReady(operation.desiredPlayWhenReady);
       exoPlayer.prepare();
@@ -175,9 +207,19 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     public void onRenderedFirstFrame(
         @NonNull EventTime eventTime, @NonNull Object output, long renderTimeMs) {
       SwitchOperation operation = activeOperation;
-      if (operation == null || !operation.ready || !operation.sourceId().equals(sourceId(eventTime))) {
+      if (operation == null) {
         return;
       }
+      if (!operation.ready || !operation.sourceId().equals(sourceId(eventTime))) {
+        if (debugEnabled) {
+          rejectedStaleFrameCount++;
+        }
+        return;
+      }
+      if (debugEnabled) {
+        acceptedFrameCount++;
+      }
+      diagnostic(operation, "firstFrameNanos", SystemClock.elapsedRealtimeNanos());
       finishReadyOperation(operation);
     }
   }
@@ -199,6 +241,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     }
     cancelTimeout(operation);
     operation.ready = true;
+    diagnostic(operation, "readyNanos", SystemClock.elapsedRealtimeNanos());
     if (operation.rollback || !hasSelectedVideoTrack()) {
       finishReadyOperation(operation);
       return;
@@ -223,7 +266,15 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
   void onRenderedFirstFrameForSource(@NonNull String sourceId) {
     SwitchOperation operation = activeOperation;
     if (operation != null && operation.ready && operation.sourceId().equals(sourceId)) {
+      if (debugEnabled) {
+        acceptedFrameCount++;
+      }
+      diagnostic(operation, "firstFrameNanos", SystemClock.elapsedRealtimeNanos());
       finishReadyOperation(operation);
+    } else {
+      if (debugEnabled) {
+        rejectedStaleFrameCount++;
+      }
     }
   }
 
@@ -234,9 +285,11 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     cancelTimeout(operation);
     if (operation.rollback) {
       emit(operation, "failed", operation.failureReason, true);
+      finishDiagnostics(operation, "failed", true);
     } else {
       lastConfirmedSourceDescriptor = operation.requested;
       emit(operation, "completed", null, null);
+      finishDiagnostics(operation, "completed", null);
     }
     activeOperation = null;
   }
@@ -257,12 +310,18 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     if (operation.rollback) {
       exoPlayer.stop();
       emit(operation, "failed", operation.failureReason, false);
+      finishDiagnostics(operation, "failed", false);
       activeOperation = null;
       return;
     }
     operation.rollback = true;
+    if (debugEnabled) {
+      rollbackCount++;
+    }
     operation.ready = false;
     operation.failureReason = reason;
+    diagnostic(operation, "rollbackStartedNanos", SystemClock.elapsedRealtimeNanos());
+    diagnostic(operation, "failure", reason);
     operation.sourceGeneration = ++sourceGeneration;
     try {
       setSource(
@@ -276,6 +335,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     } catch (RuntimeException rollbackError) {
       exoPlayer.stop();
       emit(operation, "failed", reason, false);
+      finishDiagnostics(operation, "failed", false);
       activeOperation = null;
     }
   }
@@ -311,12 +371,40 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     SwitchOperation operation = activeOperation;
     if (operation != null) {
       cancelTimeout(operation);
+      finishDiagnostics(operation, "cancelled", null);
       activeOperation = null;
     }
   }
 
   private boolean isCurrent(SwitchOperation operation) {
     return !disposed && activeOperation == operation;
+  }
+
+  private static String label(MediaSourceDescriptor descriptor) {
+    return descriptor.qualityLabel == null ? "initial" : descriptor.qualityLabel;
+  }
+
+  private static void diagnostic(SwitchOperation operation, String key, Object value) {
+    if (operation.diagnostics != null) {
+      operation.diagnostics.put(key, value);
+    }
+  }
+
+  private void finishDiagnostics(
+      SwitchOperation operation, String state, @Nullable Boolean rollbackSucceeded) {
+    if (operation.diagnostics == null) {
+      return;
+    }
+    diagnostic(operation, "state", state);
+    diagnostic(operation, "completionNanos", SystemClock.elapsedRealtimeNanos());
+    diagnostic(operation, "finalPositionMs", exoPlayer.getCurrentPosition());
+    diagnostic(operation, "desiredPositionMs", operation.desiredPositionMs);
+    diagnostic(operation, "desiredPlayWhenReady", operation.desiredPlayWhenReady);
+    diagnostic(operation, "surfaceLossCount", surfaceLossCount);
+    diagnostic(operation, "rejectedStaleFrameCount", rejectedStaleFrameCount);
+    if (rollbackSucceeded != null) {
+      diagnostic(operation, "rollbackSucceeded", rollbackSucceeded);
+    }
   }
 
   private void emit(
@@ -375,6 +463,11 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     surfaceAvailable = surface != null && surface.isValid();
     if (surfaceAvailable) {
       exoPlayer.setVideoSurface(surface);
+      lastSurfaceAttachmentNanos = SystemClock.elapsedRealtimeNanos();
+      SwitchOperation operation = activeOperation;
+      if (operation != null) {
+        diagnostic(operation, "surfaceAttachmentNanos", lastSurfaceAttachmentNanos);
+      }
     }
   }
 
@@ -384,6 +477,13 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
       return;
     }
     surfaceAvailable = false;
+    if (debugEnabled) {
+      surfaceLossCount++;
+    }
+    SwitchOperation operation = activeOperation;
+    if (operation != null) {
+      diagnostic(operation, "surfaceLossNanos", SystemClock.elapsedRealtimeNanos());
+    }
     suspendFirstFrameTimeout();
     exoPlayer.clearVideoSurface();
   }
@@ -402,6 +502,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     SwitchOperation operation = activeOperation;
     if (operation != null) {
       operation.desiredPlayWhenReady = true;
+      diagnostic(operation, "desiredPlayWhenReady", true);
     }
     exoPlayer.play();
   }
@@ -410,6 +511,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     SwitchOperation operation = activeOperation;
     if (operation != null) {
       operation.desiredPlayWhenReady = false;
+      diagnostic(operation, "desiredPlayWhenReady", false);
     }
     exoPlayer.pause();
   }
@@ -430,6 +532,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     SwitchOperation operation = activeOperation;
     if (operation != null) {
       operation.desiredPositionMs = location;
+      diagnostic(operation, "desiredPositionMs", location);
     }
     exoPlayer.seekTo(location);
   }
@@ -444,6 +547,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     }
     disposed = true;
     cancelOperation();
+    surfaceAvailable = false;
     surfaceProducer.release();
     exoPlayer.release();
   }
@@ -452,6 +556,35 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
   @Nullable
   MediaSourceDescriptor getLastConfirmedSourceDescriptor() {
     return lastConfirmedSourceDescriptor;
+  }
+
+  @NonNull
+  Map<String, Object> debugSnapshot(long textureId) {
+    Map<String, Object> snapshot = new LinkedHashMap<>();
+    snapshot.put("textureId", textureId);
+    snapshot.put("playerIdentity", System.identityHashCode(exoPlayer));
+    snapshot.put("activeOperation", activeOperation == null ? null : activeOperation.id);
+    snapshot.put("disposed", disposed);
+    snapshot.put("confirmedSource", label(lastConfirmedSourceDescriptor));
+    snapshot.put("sourceGeneration", sourceGeneration);
+    snapshot.put("replacementCount", replacementCount);
+    snapshot.put("rollbackCount", rollbackCount);
+    snapshot.put("acceptedFrameCount", acceptedFrameCount);
+    snapshot.put("rejectedStaleFrameCount", rejectedStaleFrameCount);
+    snapshot.put("surfaceAttached", surfaceAvailable);
+    snapshot.put("surfaceLossCount", surfaceLossCount);
+    snapshot.put("lastSurfaceAttachmentNanos", lastSurfaceAttachmentNanos);
+    snapshot.put("operations", new ArrayList<>(operationHistory));
+    return snapshot;
+  }
+
+  void clearDebugDiagnostics() {
+    replacementCount = 0;
+    rollbackCount = 0;
+    acceptedFrameCount = 0;
+    rejectedStaleFrameCount = 0;
+    surfaceLossCount = 0;
+    operationHistory.clear();
   }
 
   private static final class PlaybackSnapshot {
@@ -519,6 +652,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     @Nullable Runnable timeout;
     long firstFrameRemainingMs;
     long firstFrameDeadlineMs;
+    @Nullable Map<String, Object> diagnostics;
 
     SwitchOperation(
         String id,

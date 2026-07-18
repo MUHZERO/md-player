@@ -5,6 +5,7 @@
 package io.flutter.plugins.videoplayer;
 
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
 import android.os.Build;
 import android.util.LongSparseArray;
 import androidx.annotation.NonNull;
@@ -13,6 +14,7 @@ import io.flutter.Log;
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.EventChannel;
+import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugins.videoplayer.Messages.AndroidVideoPlayerApi;
 import io.flutter.plugins.videoplayer.Messages.CreateMessage;
 import io.flutter.plugins.videoplayer.Messages.LoopingMessage;
@@ -25,7 +27,10 @@ import io.flutter.plugins.videoplayer.Messages.VolumeMessage;
 import io.flutter.view.TextureRegistry;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -37,6 +42,11 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
   private final LongSparseArray<VideoPlayer> videoPlayers = new LongSparseArray<>();
   private FlutterState flutterState;
   private final VideoPlayerOptions options = new VideoPlayerOptions();
+  private MethodChannel diagnosticsChannel;
+  private boolean diagnosticsEnabled;
+  private int playerCreateCount;
+  private int playerDisposeCount;
+  private final List<Map<String, Object>> disposedPlayerSnapshots = new ArrayList<>();
 
   /** Register this with the v2 embedding for the plugin to respond to lifecycle callbacks. */
   public VideoPlayerPlugin() {}
@@ -65,6 +75,25 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
             injector.flutterLoader()::getLookupKeyForAsset,
             binding.getTextureRegistry());
     flutterState.startListening(this, binding.getBinaryMessenger());
+    diagnosticsEnabled =
+        (binding.getApplicationContext().getApplicationInfo().flags
+                & ApplicationInfo.FLAG_DEBUGGABLE)
+            != 0;
+    if (diagnosticsEnabled) {
+      diagnosticsChannel =
+          new MethodChannel(binding.getBinaryMessenger(), "md_player_android/debug_diagnostics");
+      diagnosticsChannel.setMethodCallHandler(
+          (call, result) -> {
+            if ("snapshot".equals(call.method)) {
+              result.success(debugSnapshot());
+            } else if ("clear".equals(call.method)) {
+              clearDebugDiagnostics();
+              result.success(null);
+            } else {
+              result.notImplemented();
+            }
+          });
+    }
   }
 
   @Override
@@ -73,13 +102,18 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
       Log.wtf(TAG, "Detached from the engine before registering to it.");
     }
     flutterState.stopListening(binding.getBinaryMessenger());
+    if (diagnosticsChannel != null) {
+      diagnosticsChannel.setMethodCallHandler(null);
+      diagnosticsChannel = null;
+    }
     flutterState = null;
     onDestroy();
+    diagnosticsEnabled = false;
   }
 
   private void disposeAllPlayers() {
     for (int i = 0; i < videoPlayers.size(); i++) {
-      videoPlayers.valueAt(i).dispose();
+      disposePlayer(videoPlayers.keyAt(i), videoPlayers.valueAt(i));
     }
     videoPlayers.clear();
   }
@@ -132,6 +166,9 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
             handle,
             descriptor,
             options));
+    if (diagnosticsEnabled) {
+      playerCreateCount++;
+    }
 
     return new TextureMessage.Builder().setTextureId(handle.id()).build();
   }
@@ -177,7 +214,7 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
       return;
     }
     videoPlayers.remove(arg.getTextureId());
-    player.dispose();
+    disposePlayer(arg.getTextureId(), player);
   }
 
   public void setLooping(@NonNull LoopingMessage arg) {
@@ -293,6 +330,42 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
   @Override
   public void setMixWithOthers(@NonNull MixWithOthersMessage arg) {
     options.mixWithOthers = arg.getMixWithOthers();
+  }
+
+  private void disposePlayer(long textureId, VideoPlayer player) {
+    player.dispose();
+    if (!diagnosticsEnabled) {
+      return;
+    }
+    playerDisposeCount++;
+    disposedPlayerSnapshots.add(player.debugSnapshot(textureId));
+    if (disposedPlayerSnapshots.size() > 64) {
+      disposedPlayerSnapshots.remove(0);
+    }
+  }
+
+  @NonNull
+  Map<String, Object> debugSnapshot() {
+    Map<String, Object> snapshot = new HashMap<>();
+    List<Map<String, Object>> players = new ArrayList<>();
+    for (int i = 0; i < videoPlayers.size(); i++) {
+      players.add(videoPlayers.valueAt(i).debugSnapshot(videoPlayers.keyAt(i)));
+    }
+    snapshot.put("elapsedRealtimeNanos", android.os.SystemClock.elapsedRealtimeNanos());
+    snapshot.put("playerCreateCount", playerCreateCount);
+    snapshot.put("playerDisposeCount", playerDisposeCount);
+    snapshot.put("players", players);
+    snapshot.put("disposedPlayers", new ArrayList<>(disposedPlayerSnapshots));
+    return snapshot;
+  }
+
+  void clearDebugDiagnostics() {
+    playerCreateCount = 0;
+    playerDisposeCount = 0;
+    disposedPlayerSnapshots.clear();
+    for (int i = 0; i < videoPlayers.size(); i++) {
+      videoPlayers.valueAt(i).clearDebugDiagnostics();
+    }
   }
 
   private interface KeyForAssetFn {

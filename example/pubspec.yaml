@@ -27,3 +27,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    # Private integration fixtures; the public example does not reference them.
+    - assets/phase_2_1/

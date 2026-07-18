@@ -369,6 +369,25 @@ public final class VideoPlayerTest {
   }
 
   @Test
+  public void debugDiagnosticsRetainCancelledOperationsAndFrameCounts() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    videoPlayer.changeQuality("first", descriptor("720p", false));
+    videoPlayer.changeQuality("second", descriptor("1080p", false));
+    videoPlayer.onRenderedFirstFrameForSource("quality:1");
+    videoPlayer.onReady();
+
+    Map<String, Object> snapshot = videoPlayer.debugSnapshot(17L);
+    assertEquals(17L, snapshot.get("textureId"));
+    assertEquals(2, snapshot.get("replacementCount"));
+    assertEquals(1, snapshot.get("rejectedStaleFrameCount"));
+    java.util.List<Map<String, Object>> operations =
+        (java.util.List<Map<String, Object>>) snapshot.get("operations");
+    assertEquals("cancelled", operations.get(0).get("state"));
+    assertEquals("completed", operations.get(1).get("state"));
+    assertEquals("second", operations.get(1).get("operationId"));
+  }
+
+  @Test
   public void rollbackConstructionFailureLeavesDeterministicErrorState() {
     doNothing()
         .doNothing()
