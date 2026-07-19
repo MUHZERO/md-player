@@ -59,7 +59,7 @@ final class HttpVideoAsset extends VideoAsset {
 
   @Override
   MediaSource.Factory getMediaSourceFactory(Context context) {
-    return getMediaSourceFactory(context, new DefaultHttpDataSource.Factory());
+    return getMediaSourceFactory(context, createHttpDataSourceFactory());
   }
 
   /**
@@ -74,13 +74,29 @@ final class HttpVideoAsset extends VideoAsset {
   @VisibleForTesting
   MediaSource.Factory getMediaSourceFactory(
       Context context, DefaultHttpDataSource.Factory initialFactory) {
+    return getMediaSourceFactory(
+        context, (DataSource.Factory) configureHttpDataSourceFactory(initialFactory));
+  }
+
+  @NonNull
+  DefaultHttpDataSource.Factory createHttpDataSourceFactory() {
+    return configureHttpDataSourceFactory(new DefaultHttpDataSource.Factory());
+  }
+
+  @NonNull
+  MediaSource.Factory getMediaSourceFactory(Context context, DataSource.Factory factory) {
+    DataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(context, factory);
+    return new DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory);
+  }
+
+  private DefaultHttpDataSource.Factory configureHttpDataSourceFactory(
+      DefaultHttpDataSource.Factory initialFactory) {
     String userAgent = DEFAULT_USER_AGENT;
     if (!httpHeaders.isEmpty() && httpHeaders.containsKey(HEADER_USER_AGENT)) {
       userAgent = httpHeaders.get(HEADER_USER_AGENT);
     }
     unstableUpdateDataSourceFactory(initialFactory, httpHeaders, userAgent);
-    DataSource.Factory dataSourceFactory = new DefaultDataSource.Factory(context, initialFactory);
-    return new DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory);
+    return initialFactory;
   }
 
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.

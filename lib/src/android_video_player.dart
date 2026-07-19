@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 import 'messages.g.dart';
+import 'md_player_cache.dart';
 
 /// Native quality-switch progress reported on the player's event channel.
 enum MdQualitySwitchPhase { preparing, switching, completed, failed }
@@ -73,6 +74,7 @@ class MdPlayerAndroid extends VideoPlayerPlatform {
 
   @override
   Future<int?> create(DataSource dataSource) async {
+    await MdPlayerCache.waitForPendingConfiguration();
     String? asset;
     String? packageName;
     String? uri;
@@ -117,12 +119,53 @@ class MdPlayerAndroid extends VideoPlayerPlatform {
     required String audioUri,
     VideoFormat? formatHint,
     Map<String, String> httpHeaders = const <String, String>{},
+    Map<String, String>? audioHttpHeaders,
   }) async {
+    await MdPlayerCache.waitForPendingConfiguration();
     final TextureMessage response = await _api.create(CreateMessage(
       uri: videoUri,
       audioUri: audioUri,
       formatHint: _videoFormatStringMap[formatHint],
       httpHeaders: httpHeaders,
+      audioHttpHeaders: audioHttpHeaders,
+    ));
+    return response.textureId;
+  }
+
+  Future<int?> createMdSource({
+    required String videoUri,
+    String? audioUri,
+    VideoFormat? videoFormatHint,
+    VideoFormat? audioFormatHint,
+    Map<String, String> httpHeaders = const <String, String>{},
+    Map<String, String>? audioHttpHeaders,
+    String? videoCacheKey,
+    String? audioCacheKey,
+    String? videoStreamIdentity,
+    String? audioStreamIdentity,
+    int? videoItag,
+    int? audioItag,
+    String? videoRole,
+    String? audioRole,
+  }) async {
+    await MdPlayerCache.waitForPendingConfiguration();
+    final TextureMessage response = await _api.create(CreateMessage(
+      uri: videoUri,
+      audioUri: audioUri,
+      formatHint: _videoFormatStringMap[videoFormatHint],
+      audioFormatHint: _videoFormatStringMap[audioFormatHint],
+      httpHeaders: Map<String, String>.of(httpHeaders),
+      audioHttpHeaders: audioHttpHeaders == null
+          ? null
+          : Map<String, String>.of(audioHttpHeaders),
+      videoCacheKey: videoCacheKey,
+      audioCacheKey: audioCacheKey,
+      videoStreamIdentity: videoStreamIdentity,
+      audioStreamIdentity: audioStreamIdentity,
+      videoItag: videoItag,
+      audioItag: audioItag,
+      videoRole: videoRole,
+      audioRole: audioRole,
     ));
     return response.textureId;
   }
@@ -180,6 +223,7 @@ class MdPlayerAndroid extends VideoPlayerPlatform {
     String? operationId,
     String? audioUri,
     Map<String, String> httpHeaders = const <String, String>{},
+    Map<String, String>? audioHttpHeaders,
     VideoFormat? videoFormatHint,
     VideoFormat? audioFormatHint,
     String? videoCacheKey,
@@ -188,8 +232,11 @@ class MdPlayerAndroid extends VideoPlayerPlatform {
     String? audioStreamIdentity,
     int? videoItag,
     int? audioItag,
+    String? videoRole,
+    String? audioRole,
     String? requestedLabel,
-  }) {
+  }) async {
+    await MdPlayerCache.waitForPendingConfiguration();
     return _api.changeQuality(
       ChangeQualityMessage(
         textureId: textureId,
@@ -197,7 +244,10 @@ class MdPlayerAndroid extends VideoPlayerPlatform {
         operationId: operationId,
         videoUri: newQuality,
         audioUri: audioUri,
-        httpHeaders: httpHeaders,
+        httpHeaders: Map<String, String>.of(httpHeaders),
+        audioHttpHeaders: audioHttpHeaders == null
+            ? null
+            : Map<String, String>.of(audioHttpHeaders),
         videoFormatHint: _videoFormatStringMap[videoFormatHint],
         audioFormatHint: _videoFormatStringMap[audioFormatHint],
         videoCacheKey: videoCacheKey,
@@ -206,6 +256,8 @@ class MdPlayerAndroid extends VideoPlayerPlatform {
         audioStreamIdentity: audioStreamIdentity,
         videoItag: videoItag,
         audioItag: audioItag,
+        videoRole: videoRole,
+        audioRole: audioRole,
         requestedLabel: requestedLabel,
       ),
     );

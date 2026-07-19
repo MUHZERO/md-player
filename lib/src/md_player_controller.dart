@@ -203,24 +203,45 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
   }
 
   Future<bool> _create(MdPlayerSource source, int operation) async {
-    final Future<int?> creation = source.audioUrl == null
-        ? _platform.createWithOptions(
-            VideoCreationOptions(
-              dataSource: DataSource(
-                sourceType: DataSourceType.network,
-                uri: source.videoUrl,
+    final bool hasCacheMetadata = source.videoCacheKey != null ||
+        source.audioCacheKey != null ||
+        source.videoStreamIdentity != null;
+    final Future<int?> creation = hasCacheMetadata
+        ? _androidPlatform.createMdSource(
+            videoUri: source.videoUrl,
+            audioUri: source.audioUrl,
+            videoFormatHint: source.formatHint,
+            audioFormatHint: source.audioFormatHint,
+            httpHeaders: source.httpHeaders,
+            audioHttpHeaders: source.audioHttpHeaders,
+            videoCacheKey: source.videoCacheKey,
+            audioCacheKey: source.audioCacheKey,
+            videoStreamIdentity: source.videoStreamIdentity,
+            audioStreamIdentity: source.audioStreamIdentity,
+            videoItag: source.videoItag,
+            audioItag: source.audioItag,
+            videoRole: source.videoRole,
+            audioRole: source.audioRole,
+          )
+        : source.audioUrl == null
+            ? _platform.createWithOptions(
+                VideoCreationOptions(
+                  dataSource: DataSource(
+                    sourceType: DataSourceType.network,
+                    uri: source.videoUrl,
+                    formatHint: source.formatHint,
+                    httpHeaders: source.httpHeaders,
+                  ),
+                  viewType: VideoViewType.textureView,
+                ),
+              )
+            : _androidPlatform.createWithAudio(
+                videoUri: source.videoUrl,
+                audioUri: source.audioUrl!,
                 formatHint: source.formatHint,
                 httpHeaders: source.httpHeaders,
-              ),
-              viewType: VideoViewType.textureView,
-            ),
-          )
-        : _androidPlatform.createWithAudio(
-            videoUri: source.videoUrl,
-            audioUri: source.audioUrl!,
-            formatHint: source.formatHint,
-            httpHeaders: source.httpHeaders,
-          );
+                audioHttpHeaders: source.audioHttpHeaders,
+              );
     final (bool, int?) result =
         await _raceCancellation<int?>(creation, operation);
     if (result.$1) {
@@ -325,8 +346,18 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
           audioUrl: quality.audioUrl,
           formatHint: quality.videoFormatHint,
           httpHeaders: quality.httpHeaders,
+          audioHttpHeaders: quality.audioHttpHeaders,
           qualityLabel: quality.label,
           qualities: _source?.qualities ?? const <MdPlayerQuality>[],
+          videoCacheKey: quality.videoCacheKey,
+          audioCacheKey: quality.audioCacheKey,
+          videoStreamIdentity: quality.videoStreamIdentity,
+          audioStreamIdentity: quality.audioStreamIdentity,
+          videoItag: quality.videoItag,
+          audioItag: quality.audioItag,
+          videoRole: quality.videoRole,
+          audioRole: quality.audioRole,
+          audioFormatHint: quality.audioFormatHint,
         );
       }
     }
@@ -520,6 +551,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
         operationId: operationId,
         audioUri: quality.audioUrl,
         httpHeaders: quality.httpHeaders,
+        audioHttpHeaders: quality.audioHttpHeaders,
         videoFormatHint: quality.videoFormatHint,
         audioFormatHint: quality.audioFormatHint,
         videoCacheKey: quality.videoCacheKey,
@@ -528,6 +560,8 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
         audioStreamIdentity: quality.audioStreamIdentity,
         videoItag: quality.videoItag,
         audioItag: quality.audioItag,
+        videoRole: quality.videoRole,
+        audioRole: quality.audioRole,
         requestedLabel: quality.label,
       );
     } on PlatformException catch (error) {

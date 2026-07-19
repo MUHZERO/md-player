@@ -22,6 +22,8 @@ import io.flutter.plugins.videoplayer.Messages.MixWithOthersMessage;
 import io.flutter.plugins.videoplayer.Messages.PlaybackSpeedMessage;
 import io.flutter.plugins.videoplayer.Messages.PositionMessage;
 import io.flutter.plugins.videoplayer.Messages.ChangeQualityMessage;
+import io.flutter.plugins.videoplayer.Messages.CacheConfigurationMessage;
+import io.flutter.plugins.videoplayer.Messages.CacheStatsMessage;
 import io.flutter.plugins.videoplayer.Messages.TextureMessage;
 import io.flutter.plugins.videoplayer.Messages.VolumeMessage;
 import io.flutter.view.TextureRegistry;
@@ -142,20 +144,27 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
         arg.getAudioUri() == null || arg.getAudioUri().isEmpty()
             ? null
             : VideoAsset.fromRemoteUrl(
-                arg.getAudioUri(), VideoAsset.StreamingFormat.UNKNOWN, arg.getHttpHeaders());
+                arg.getAudioUri(),
+                streamingFormat(arg.getAudioFormatHint()),
+                arg.getAudioHttpHeaders() == null
+                    ? arg.getHttpHeaders()
+                    : arg.getAudioHttpHeaders());
     final MediaSourceDescriptor descriptor =
         new MediaSourceDescriptor(
             videoAsset,
             audioAsset,
             arg.getHttpHeaders(),
+            arg.getAudioHttpHeaders(),
             arg.getFormatHint(),
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
+            arg.getAudioFormatHint(),
+            arg.getVideoCacheKey(),
+            arg.getAudioCacheKey(),
+            arg.getVideoStreamIdentity(),
+            arg.getAudioStreamIdentity(),
+            arg.getVideoItag(),
+            arg.getAudioItag(),
+            arg.getVideoRole(),
+            arg.getAudioRole(),
             null);
 
     videoPlayers.put(
@@ -264,18 +273,21 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
     }
     Map<String, String> headers =
         arg.getHttpHeaders() == null ? Collections.emptyMap() : arg.getHttpHeaders();
+    Map<String, String> audioHeaders =
+        arg.getAudioHttpHeaders() == null ? headers : arg.getAudioHttpHeaders();
     VideoAsset video =
         VideoAsset.fromRemoteUrl(videoUri, streamingFormat(arg.getVideoFormatHint()), headers);
     VideoAsset audio =
         arg.getAudioUri() == null || arg.getAudioUri().isEmpty()
             ? null
             : VideoAsset.fromRemoteUrl(
-                arg.getAudioUri(), streamingFormat(arg.getAudioFormatHint()), headers);
+                arg.getAudioUri(), streamingFormat(arg.getAudioFormatHint()), audioHeaders);
     MediaSourceDescriptor descriptor =
         new MediaSourceDescriptor(
             video,
             audio,
             headers,
+            audioHeaders,
             arg.getVideoFormatHint(),
             arg.getAudioFormatHint(),
             arg.getVideoCacheKey(),
@@ -284,6 +296,8 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
             arg.getAudioStreamIdentity(),
             arg.getVideoItag(),
             arg.getAudioItag(),
+            arg.getVideoRole(),
+            arg.getAudioRole(),
             arg.getRequestedLabel());
     String operationId =
         arg.getOperationId() == null ? "legacy-" + UUID.randomUUID() : arg.getOperationId();
@@ -330,6 +344,43 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
   @Override
   public void setMixWithOthers(@NonNull MixWithOthersMessage arg) {
     options.mixWithOthers = arg.getMixWithOthers();
+  }
+
+  @Override
+  public void configureCache(@NonNull CacheConfigurationMessage arg) {
+    MediaCacheManager.getInstance()
+        .configure(
+            requireApplicationContext(), arg.getMaxBytes(), arg.getDirectoryName());
+  }
+
+  @Override
+  public void disableCache() {
+    MediaCacheManager.getInstance().disable();
+  }
+
+  @Override
+  public @NonNull CacheStatsMessage cacheStats() {
+    return MediaCacheManager.getInstance().stats();
+  }
+
+  @Override
+  public void clearCache() {
+    MediaCacheManager.getInstance().clear();
+  }
+
+  @Override
+  public void removeCachedVideo(@NonNull String videoId) {
+    if (videoId.isEmpty()) {
+      throw new IllegalArgumentException("videoId must not be empty");
+    }
+    MediaCacheManager.getInstance().removeVideo(videoId);
+  }
+
+  private Context requireApplicationContext() {
+    if (flutterState == null) {
+      throw new IllegalStateException("Plugin is detached");
+    }
+    return flutterState.applicationContext;
   }
 
   private void disposePlayer(long textureId, VideoPlayer player) {

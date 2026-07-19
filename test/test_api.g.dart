@@ -41,8 +41,14 @@ class _PigeonCodec extends StandardMessageCodec {
     } else if (value is CreateMessage) {
       buffer.putUint8(135);
       writeValue(buffer, value.encode());
-    } else if (value is MixWithOthersMessage) {
+    } else if (value is CacheConfigurationMessage) {
       buffer.putUint8(136);
+      writeValue(buffer, value.encode());
+    } else if (value is CacheStatsMessage) {
+      buffer.putUint8(137);
+      writeValue(buffer, value.encode());
+    } else if (value is MixWithOthersMessage) {
+      buffer.putUint8(138);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -67,6 +73,10 @@ class _PigeonCodec extends StandardMessageCodec {
       case 135:
         return CreateMessage.decode(readValue(buffer)!);
       case 136:
+        return CacheConfigurationMessage.decode(readValue(buffer)!);
+      case 137:
+        return CacheStatsMessage.decode(readValue(buffer)!);
+      case 138:
         return MixWithOthersMessage.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -102,6 +112,16 @@ abstract class TestHostVideoPlayerApi {
   void pause(TextureMessage msg);
 
   void setMixWithOthers(MixWithOthersMessage msg);
+
+  void configureCache(CacheConfigurationMessage msg);
+
+  void disableCache();
+
+  CacheStatsMessage cacheStats();
+
+  void clearCache();
+
+  void removeCachedVideo(String videoId);
 
   static void setUp(
     TestHostVideoPlayerApi? api, {
@@ -410,6 +430,131 @@ abstract class TestHostVideoPlayerApi {
           final MixWithOthersMessage arg_msg = args[0]! as MixWithOthersMessage;
           try {
             api.setMixWithOthers(arg_msg);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+                error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.md_player_android.AndroidVideoPlayerApi.configureCache$messageChannelSuffix',
+          pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(pigeonVar_channel, null);
+      } else {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(pigeonVar_channel,
+                (Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final CacheConfigurationMessage arg_msg =
+              args[0]! as CacheConfigurationMessage;
+          try {
+            api.configureCache(arg_msg);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+                error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.md_player_android.AndroidVideoPlayerApi.disableCache$messageChannelSuffix',
+          pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(pigeonVar_channel, null);
+      } else {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(pigeonVar_channel,
+                (Object? message) async {
+          try {
+            api.disableCache();
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+                error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.md_player_android.AndroidVideoPlayerApi.cacheStats$messageChannelSuffix',
+          pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(pigeonVar_channel, null);
+      } else {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(pigeonVar_channel,
+                (Object? message) async {
+          try {
+            final CacheStatsMessage output = api.cacheStats();
+            return <Object?>[output];
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+                error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.md_player_android.AndroidVideoPlayerApi.clearCache$messageChannelSuffix',
+          pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(pigeonVar_channel, null);
+      } else {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(pigeonVar_channel,
+                (Object? message) async {
+          try {
+            api.clearCache();
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+                error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.md_player_android.AndroidVideoPlayerApi.removeCachedVideo$messageChannelSuffix',
+          pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(pigeonVar_channel, null);
+      } else {
+        _testBinaryMessengerBinding!.defaultBinaryMessenger
+            .setMockDecodedMessageHandler<Object?>(pigeonVar_channel,
+                (Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final String arg_videoId = args[0]! as String;
+          try {
+            api.removeCachedVideo(arg_videoId);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

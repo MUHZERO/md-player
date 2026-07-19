@@ -5,6 +5,49 @@ import 'package:md_player_android/md_player_android.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 void main() {
+  test('cache configuration validates bounds and directory names', () {
+    expect(
+      () => MdPlayerCacheConfiguration(maxBytes: 1024 * 1024 - 1),
+      throwsArgumentError,
+    );
+    for (final String name in <String>[
+      '',
+      '.',
+      '..',
+      '../cache',
+      'a/b',
+      '/tmp'
+    ]) {
+      expect(
+        () => MdPlayerCacheConfiguration(
+          maxBytes: 1024 * 1024,
+          directoryName: name,
+        ),
+        throwsArgumentError,
+      );
+    }
+    final MdPlayerCacheConfiguration value =
+        MdPlayerCacheConfiguration(maxBytes: 1024 * 1024);
+    expect(value.directoryName, 'md_player_media_cache');
+  });
+
+  test('YouTube progressive cache keys are stable and role-specific', () {
+    final String first = mdPlayerYoutubeCacheKey('å/video', 'video', 137);
+    final String second = mdPlayerYoutubeCacheKey('å/video', 'video', 137);
+
+    expect(first, second);
+    expect(first, startsWith('md-player:youtube:'));
+    expect(first, isNot(contains('=')));
+    expect(
+      mdPlayerYoutubeCacheKey('å/video', 'audio', 137),
+      isNot(first),
+    );
+    expect(
+      mdPlayerYoutubeCacheKey('å/video', 'video', 136),
+      isNot(first),
+    );
+  });
+
   test('direct URLs are returned without resolving', () async {
     final MdPlayerSourceResolver resolver = MdPlayerSourceResolver();
 

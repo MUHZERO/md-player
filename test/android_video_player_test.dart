@@ -5,6 +5,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:md_player_android/src/messages.g.dart';
 import 'package:md_player_android/md_player_android.dart';
@@ -23,6 +24,17 @@ class _ApiLogger implements TestHostVideoPlayerApi {
   PlaybackSpeedMessage? playbackSpeedMessage;
   MixWithOthersMessage? mixWithOthersMessage;
   ChangeQualityMessage? changeQualityMessage;
+  CacheConfigurationMessage? cacheConfigurationMessage;
+  CacheStatsMessage cacheStatsMessage = CacheStatsMessage(
+    enabled: false,
+    currentBytes: 0,
+    maxBytes: 0,
+    cachedResources: 0,
+    cacheReadBytes: 0,
+    upstreamReadBytes: 0,
+    cacheReadOperations: 0,
+    upstreamOpenOperations: 0,
+  );
 
   @override
   TextureMessage create(CreateMessage arg) {
@@ -99,6 +111,33 @@ class _ApiLogger implements TestHostVideoPlayerApi {
     log.add('changeQuality');
     changeQualityMessage = arg;
   }
+
+  @override
+  void configureCache(CacheConfigurationMessage arg) {
+    log.add('configureCache');
+    cacheConfigurationMessage = arg;
+  }
+
+  @override
+  void disableCache() {
+    log.add('disableCache');
+  }
+
+  @override
+  CacheStatsMessage cacheStats() {
+    log.add('cacheStats');
+    return cacheStatsMessage;
+  }
+
+  @override
+  void clearCache() {
+    log.add('clearCache');
+  }
+
+  @override
+  void removeCachedVideo(String videoId) {
+    log.add('removeCachedVideo');
+  }
 }
 
 void main() {
@@ -114,8 +153,105 @@ void main() {
     late _ApiLogger log;
 
     setUp(() {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
       log = _ApiLogger();
       TestHostVideoPlayerApi.setUp(log);
+    });
+
+    tearDown(() {
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    test('cache facade validates platform and maps Pigeon statistics',
+        () async {
+      await MdPlayerCache.configure(
+        MdPlayerCacheConfiguration(
+          maxBytes: 2 * 1024 * 1024,
+          directoryName: 'media-cache',
+        ),
+      );
+      expect(log.cacheConfigurationMessage?.maxBytes, 2 * 1024 * 1024);
+      expect(log.cacheConfigurationMessage?.directoryName, 'media-cache');
+
+      log.cacheStatsMessage = CacheStatsMessage(
+        enabled: true,
+        currentBytes: 11,
+        maxBytes: 22,
+        cachedResources: 2,
+        cacheReadBytes: 3,
+        upstreamReadBytes: 4,
+        cacheReadOperations: 5,
+        upstreamOpenOperations: 6,
+      );
+      final MdPlayerCacheStats stats = await MdPlayerCache.stats();
+      expect(stats.enabled, isTrue);
+      expect(stats.currentBytes, 11);
+      expect(stats.maxBytes, 22);
+      expect(stats.cachedResources, 2);
+      expect(stats.cacheReadBytes, 3);
+      expect(stats.upstreamReadBytes, 4);
+      expect(stats.cacheReadOperations, 5);
+      expect(stats.upstreamOpenOperations, 6);
+
+      await MdPlayerCache.disable();
+      await MdPlayerCache.removeVideo('abc');
+      await MdPlayerCache.clear();
+      expect(
+          log.log,
+          containsAll(<String>[
+            'disableCache',
+            'removeCachedVideo',
+            'clearCache',
+          ]));
+    });
+
+    test('cache facade is unsupported outside Android', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      expect(
+        () => MdPlayerCache.configure(
+          MdPlayerCacheConfiguration(maxBytes: 1024 * 1024),
+        ),
+        throwsUnsupportedError,
+      );
+      expect(MdPlayerCache.stats(), throwsUnsupportedError);
+      expect(() => MdPlayerCache.disable(), throwsUnsupportedError);
+      expect(() => MdPlayerCache.clear(), throwsUnsupportedError);
+      expect(() => MdPlayerCache.removeVideo('abc'), throwsUnsupportedError);
+    });
+
+    test('initial metadata and source-local headers are copied', () async {
+      final Map<String, String> videoHeaders = <String, String>{
+        'Role': 'video'
+      };
+      final Map<String, String> audioHeaders = <String, String>{
+        'Role': 'audio'
+      };
+      await player.createMdSource(
+        videoUri: 'https://example.test/video',
+        audioUri: 'https://example.test/audio',
+        httpHeaders: videoHeaders,
+        audioHttpHeaders: audioHeaders,
+        videoCacheKey: 'video-key',
+        audioCacheKey: 'audio-key',
+        videoStreamIdentity: 'abc',
+        audioStreamIdentity: 'abc',
+        videoItag: 137,
+        audioItag: 140,
+        videoRole: 'video',
+        audioRole: 'audio',
+      );
+      videoHeaders['Role'] = 'changed';
+      audioHeaders['Role'] = 'changed';
+
+      expect(log.createMessage?.httpHeaders, <String, String>{'Role': 'video'});
+      expect(log.createMessage?.audioHttpHeaders,
+          <String, String>{'Role': 'audio'});
+      expect(log.createMessage?.videoCacheKey, 'video-key');
+      expect(log.createMessage?.audioCacheKey, 'audio-key');
+      expect(log.createMessage?.videoItag, 137);
+      expect(log.createMessage?.audioItag, 140);
+      expect(log.createMessage?.videoRole, 'video');
+      expect(log.createMessage?.audioRole, 'audio');
     });
 
     test('init', () async {

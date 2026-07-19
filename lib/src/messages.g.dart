@@ -372,6 +372,7 @@ class ChangeQualityMessage {
     this.videoUri,
     this.audioUri,
     this.httpHeaders,
+    this.audioHttpHeaders,
     this.videoFormatHint,
     this.audioFormatHint,
     this.videoCacheKey,
@@ -380,6 +381,8 @@ class ChangeQualityMessage {
     this.audioStreamIdentity,
     this.videoItag,
     this.audioItag,
+    this.videoRole,
+    this.audioRole,
     this.requestedLabel,
   });
 
@@ -394,6 +397,8 @@ class ChangeQualityMessage {
   String? audioUri;
 
   Map<String?, String?>? httpHeaders;
+
+  Map<String?, String?>? audioHttpHeaders;
 
   String? videoFormatHint;
 
@@ -411,6 +416,10 @@ class ChangeQualityMessage {
 
   int? audioItag;
 
+  String? videoRole;
+
+  String? audioRole;
+
   String? requestedLabel;
 
   List<Object?> _toList() {
@@ -421,6 +430,7 @@ class ChangeQualityMessage {
       videoUri,
       audioUri,
       httpHeaders,
+      audioHttpHeaders,
       videoFormatHint,
       audioFormatHint,
       videoCacheKey,
@@ -429,6 +439,8 @@ class ChangeQualityMessage {
       audioStreamIdentity,
       videoItag,
       audioItag,
+      videoRole,
+      audioRole,
       requestedLabel,
     ];
   }
@@ -447,15 +459,19 @@ class ChangeQualityMessage {
       audioUri: result[4] as String?,
       httpHeaders:
           (result[5] as Map<Object?, Object?>?)?.cast<String?, String?>(),
-      videoFormatHint: result[6] as String?,
-      audioFormatHint: result[7] as String?,
-      videoCacheKey: result[8] as String?,
-      audioCacheKey: result[9] as String?,
-      videoStreamIdentity: result[10] as String?,
-      audioStreamIdentity: result[11] as String?,
-      videoItag: result[12] as int?,
-      audioItag: result[13] as int?,
-      requestedLabel: result[14] as String?,
+      audioHttpHeaders:
+          (result[6] as Map<Object?, Object?>?)?.cast<String?, String?>(),
+      videoFormatHint: result[7] as String?,
+      audioFormatHint: result[8] as String?,
+      videoCacheKey: result[9] as String?,
+      audioCacheKey: result[10] as String?,
+      videoStreamIdentity: result[11] as String?,
+      audioStreamIdentity: result[12] as String?,
+      videoItag: result[13] as int?,
+      audioItag: result[14] as int?,
+      videoRole: result[15] as String?,
+      audioRole: result[16] as String?,
+      requestedLabel: result[17] as String?,
     );
   }
 
@@ -474,6 +490,7 @@ class ChangeQualityMessage {
         _deepEquals(videoUri, other.videoUri) &&
         _deepEquals(audioUri, other.audioUri) &&
         _deepEquals(httpHeaders, other.httpHeaders) &&
+        _deepEquals(audioHttpHeaders, other.audioHttpHeaders) &&
         _deepEquals(videoFormatHint, other.videoFormatHint) &&
         _deepEquals(audioFormatHint, other.audioFormatHint) &&
         _deepEquals(videoCacheKey, other.videoCacheKey) &&
@@ -482,6 +499,8 @@ class ChangeQualityMessage {
         _deepEquals(audioStreamIdentity, other.audioStreamIdentity) &&
         _deepEquals(videoItag, other.videoItag) &&
         _deepEquals(audioItag, other.audioItag) &&
+        _deepEquals(videoRole, other.videoRole) &&
+        _deepEquals(audioRole, other.audioRole) &&
         _deepEquals(requestedLabel, other.requestedLabel);
   }
 
@@ -491,7 +510,7 @@ class ChangeQualityMessage {
 
   @override
   String toString() {
-    return 'ChangeQualityMessage(textureId: $textureId, newUrl: $newUrl, operationId: $operationId, videoUri: $videoUri, audioUri: $audioUri, httpHeaders: $httpHeaders, videoFormatHint: $videoFormatHint, audioFormatHint: $audioFormatHint, videoCacheKey: $videoCacheKey, audioCacheKey: $audioCacheKey, videoStreamIdentity: $videoStreamIdentity, audioStreamIdentity: $audioStreamIdentity, videoItag: $videoItag, audioItag: $audioItag, requestedLabel: $requestedLabel)';
+    return 'ChangeQualityMessage(textureId: $textureId, newUrl: $newUrl, operationId: $operationId, videoUri: $videoUri, audioUri: $audioUri, httpHeaders: $httpHeaders, audioHttpHeaders: $audioHttpHeaders, videoFormatHint: $videoFormatHint, audioFormatHint: $audioFormatHint, videoCacheKey: $videoCacheKey, audioCacheKey: $audioCacheKey, videoStreamIdentity: $videoStreamIdentity, audioStreamIdentity: $audioStreamIdentity, videoItag: $videoItag, audioItag: $audioItag, videoRole: $videoRole, audioRole: $audioRole, requestedLabel: $requestedLabel)';
   }
 }
 
@@ -503,6 +522,16 @@ class CreateMessage {
     this.packageName,
     this.formatHint,
     required this.httpHeaders,
+    this.audioHttpHeaders,
+    this.audioFormatHint,
+    this.videoCacheKey,
+    this.audioCacheKey,
+    this.videoStreamIdentity,
+    this.audioStreamIdentity,
+    this.videoItag,
+    this.audioItag,
+    this.videoRole,
+    this.audioRole,
   });
 
   String? asset;
@@ -517,6 +546,26 @@ class CreateMessage {
 
   Map<String?, String?> httpHeaders;
 
+  Map<String?, String?>? audioHttpHeaders;
+
+  String? audioFormatHint;
+
+  String? videoCacheKey;
+
+  String? audioCacheKey;
+
+  String? videoStreamIdentity;
+
+  String? audioStreamIdentity;
+
+  int? videoItag;
+
+  int? audioItag;
+
+  String? videoRole;
+
+  String? audioRole;
+
   List<Object?> _toList() {
     return <Object?>[
       asset,
@@ -525,6 +574,16 @@ class CreateMessage {
       packageName,
       formatHint,
       httpHeaders,
+      audioHttpHeaders,
+      audioFormatHint,
+      videoCacheKey,
+      audioCacheKey,
+      videoStreamIdentity,
+      audioStreamIdentity,
+      videoItag,
+      audioItag,
+      videoRole,
+      audioRole,
     ];
   }
 
@@ -542,6 +601,17 @@ class CreateMessage {
       formatHint: result[4] as String?,
       httpHeaders:
           (result[5]! as Map<Object?, Object?>).cast<String?, String?>(),
+      audioHttpHeaders:
+          (result[6] as Map<Object?, Object?>?)?.cast<String?, String?>(),
+      audioFormatHint: result[7] as String?,
+      videoCacheKey: result[8] as String?,
+      audioCacheKey: result[9] as String?,
+      videoStreamIdentity: result[10] as String?,
+      audioStreamIdentity: result[11] as String?,
+      videoItag: result[12] as int?,
+      audioItag: result[13] as int?,
+      videoRole: result[14] as String?,
+      audioRole: result[15] as String?,
     );
   }
 
@@ -559,7 +629,17 @@ class CreateMessage {
         _deepEquals(audioUri, other.audioUri) &&
         _deepEquals(packageName, other.packageName) &&
         _deepEquals(formatHint, other.formatHint) &&
-        _deepEquals(httpHeaders, other.httpHeaders);
+        _deepEquals(httpHeaders, other.httpHeaders) &&
+        _deepEquals(audioHttpHeaders, other.audioHttpHeaders) &&
+        _deepEquals(audioFormatHint, other.audioFormatHint) &&
+        _deepEquals(videoCacheKey, other.videoCacheKey) &&
+        _deepEquals(audioCacheKey, other.audioCacheKey) &&
+        _deepEquals(videoStreamIdentity, other.videoStreamIdentity) &&
+        _deepEquals(audioStreamIdentity, other.audioStreamIdentity) &&
+        _deepEquals(videoItag, other.videoItag) &&
+        _deepEquals(audioItag, other.audioItag) &&
+        _deepEquals(videoRole, other.videoRole) &&
+        _deepEquals(audioRole, other.audioRole);
   }
 
   @override
@@ -568,7 +648,148 @@ class CreateMessage {
 
   @override
   String toString() {
-    return 'CreateMessage(asset: $asset, uri: $uri, audioUri: $audioUri, packageName: $packageName, formatHint: $formatHint, httpHeaders: $httpHeaders)';
+    return 'CreateMessage(asset: $asset, uri: $uri, audioUri: $audioUri, packageName: $packageName, formatHint: $formatHint, httpHeaders: $httpHeaders, audioHttpHeaders: $audioHttpHeaders, audioFormatHint: $audioFormatHint, videoCacheKey: $videoCacheKey, audioCacheKey: $audioCacheKey, videoStreamIdentity: $videoStreamIdentity, audioStreamIdentity: $audioStreamIdentity, videoItag: $videoItag, audioItag: $audioItag, videoRole: $videoRole, audioRole: $audioRole)';
+  }
+}
+
+class CacheConfigurationMessage {
+  CacheConfigurationMessage({
+    required this.maxBytes,
+    required this.directoryName,
+  });
+
+  int maxBytes;
+
+  String directoryName;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      maxBytes,
+      directoryName,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static CacheConfigurationMessage decode(Object result) {
+    result as List<Object?>;
+    return CacheConfigurationMessage(
+      maxBytes: result[0]! as int,
+      directoryName: result[1]! as String,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! CacheConfigurationMessage ||
+        other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(maxBytes, other.maxBytes) &&
+        _deepEquals(directoryName, other.directoryName);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'CacheConfigurationMessage(maxBytes: $maxBytes, directoryName: $directoryName)';
+  }
+}
+
+class CacheStatsMessage {
+  CacheStatsMessage({
+    required this.enabled,
+    required this.currentBytes,
+    required this.maxBytes,
+    required this.cachedResources,
+    required this.cacheReadBytes,
+    required this.upstreamReadBytes,
+    required this.cacheReadOperations,
+    required this.upstreamOpenOperations,
+  });
+
+  bool enabled;
+
+  int currentBytes;
+
+  int maxBytes;
+
+  int cachedResources;
+
+  int cacheReadBytes;
+
+  int upstreamReadBytes;
+
+  int cacheReadOperations;
+
+  int upstreamOpenOperations;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      enabled,
+      currentBytes,
+      maxBytes,
+      cachedResources,
+      cacheReadBytes,
+      upstreamReadBytes,
+      cacheReadOperations,
+      upstreamOpenOperations,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static CacheStatsMessage decode(Object result) {
+    result as List<Object?>;
+    return CacheStatsMessage(
+      enabled: result[0]! as bool,
+      currentBytes: result[1]! as int,
+      maxBytes: result[2]! as int,
+      cachedResources: result[3]! as int,
+      cacheReadBytes: result[4]! as int,
+      upstreamReadBytes: result[5]! as int,
+      cacheReadOperations: result[6]! as int,
+      upstreamOpenOperations: result[7]! as int,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! CacheStatsMessage || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(enabled, other.enabled) &&
+        _deepEquals(currentBytes, other.currentBytes) &&
+        _deepEquals(maxBytes, other.maxBytes) &&
+        _deepEquals(cachedResources, other.cachedResources) &&
+        _deepEquals(cacheReadBytes, other.cacheReadBytes) &&
+        _deepEquals(upstreamReadBytes, other.upstreamReadBytes) &&
+        _deepEquals(cacheReadOperations, other.cacheReadOperations) &&
+        _deepEquals(upstreamOpenOperations, other.upstreamOpenOperations);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'CacheStatsMessage(enabled: $enabled, currentBytes: $currentBytes, maxBytes: $maxBytes, cachedResources: $cachedResources, cacheReadBytes: $cacheReadBytes, upstreamReadBytes: $upstreamReadBytes, cacheReadOperations: $cacheReadOperations, upstreamOpenOperations: $upstreamOpenOperations)';
   }
 }
 
@@ -646,8 +867,14 @@ class _PigeonCodec extends StandardMessageCodec {
     } else if (value is CreateMessage) {
       buffer.putUint8(135);
       writeValue(buffer, value.encode());
-    } else if (value is MixWithOthersMessage) {
+    } else if (value is CacheConfigurationMessage) {
       buffer.putUint8(136);
+      writeValue(buffer, value.encode());
+    } else if (value is CacheStatsMessage) {
+      buffer.putUint8(137);
+      writeValue(buffer, value.encode());
+    } else if (value is MixWithOthersMessage) {
+      buffer.putUint8(138);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -672,6 +899,10 @@ class _PigeonCodec extends StandardMessageCodec {
       case 135:
         return CreateMessage.decode(readValue(buffer)!);
       case 136:
+        return CacheConfigurationMessage.decode(readValue(buffer)!);
+      case 137:
+        return CacheStatsMessage.decode(readValue(buffer)!);
+      case 138:
         return MixWithOthersMessage.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -914,6 +1145,99 @@ class AndroidVideoPlayerApi {
     );
     final Future<Object?> pigeonVar_sendFuture =
         pigeonVar_channel.send(<Object?>[msg]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  Future<void> configureCache(CacheConfigurationMessage msg) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.md_player_android.AndroidVideoPlayerApi.configureCache$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture =
+        pigeonVar_channel.send(<Object?>[msg]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  Future<void> disableCache() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.md_player_android.AndroidVideoPlayerApi.disableCache$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  Future<CacheStatsMessage> cacheStats() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.md_player_android.AndroidVideoPlayerApi.cacheStats$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as CacheStatsMessage;
+  }
+
+  Future<void> clearCache() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.md_player_android.AndroidVideoPlayerApi.clearCache$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  Future<void> removeCachedVideo(String videoId) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.md_player_android.AndroidVideoPlayerApi.removeCachedVideo$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture =
+        pigeonVar_channel.send(<Object?>[videoId]);
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     _extractReplyValueOrThrow(

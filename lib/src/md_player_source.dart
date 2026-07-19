@@ -10,6 +10,7 @@ class MdPlayerQuality {
     required this.videoUrl,
     this.audioUrl,
     this.httpHeaders = const <String, String>{},
+    this.audioHttpHeaders,
     this.videoFormatHint,
     this.audioFormatHint,
     this.videoCacheKey,
@@ -18,12 +19,15 @@ class MdPlayerQuality {
     this.audioStreamIdentity,
     this.videoItag,
     this.audioItag,
+    this.videoRole,
+    this.audioRole,
   });
 
   final String label;
   final String videoUrl;
   final String? audioUrl;
   final Map<String, String> httpHeaders;
+  final Map<String, String>? audioHttpHeaders;
   final VideoFormat? videoFormatHint;
   final VideoFormat? audioFormatHint;
   final String? videoCacheKey;
@@ -32,6 +36,8 @@ class MdPlayerQuality {
   final String? audioStreamIdentity;
   final int? videoItag;
   final int? audioItag;
+  final String? videoRole;
+  final String? audioRole;
 }
 
 class MdPlayerSource {
@@ -40,16 +46,42 @@ class MdPlayerSource {
     this.audioUrl,
     this.formatHint,
     this.httpHeaders = const <String, String>{},
+    this.audioHttpHeaders,
     this.qualityLabel = 'auto',
     this.qualities = const <MdPlayerQuality>[],
+    this.videoCacheKey,
+    this.audioCacheKey,
+    this.videoStreamIdentity,
+    this.audioStreamIdentity,
+    this.videoItag,
+    this.audioItag,
+    this.videoRole,
+    this.audioRole,
+    this.audioFormatHint,
   });
 
   final String videoUrl;
   final String? audioUrl;
   final VideoFormat? formatHint;
   final Map<String, String> httpHeaders;
+  final Map<String, String>? audioHttpHeaders;
   final String qualityLabel;
   final List<MdPlayerQuality> qualities;
+  final String? videoCacheKey;
+  final String? audioCacheKey;
+  final String? videoStreamIdentity;
+  final String? audioStreamIdentity;
+  final int? videoItag;
+  final int? audioItag;
+  final String? videoRole;
+  final String? audioRole;
+  final VideoFormat? audioFormatHint;
+}
+
+String mdPlayerYoutubeCacheKey(String videoId, String role, int itag) {
+  final String encoded =
+      base64Url.encode(utf8.encode(videoId)).replaceAll('=', '');
+  return 'md-player:youtube:$encoded:$role:$itag';
 }
 
 class MdPlayerSourceResolver {
@@ -85,17 +117,29 @@ class MdPlayerSourceResolver {
   Future<MdPlayerSource> _resolveYoutube(String url) async {
     final YoutubeExplode yt = YoutubeExplode();
     try {
+      final String videoId = VideoId(url).value;
       final StreamManifest manifest =
           await yt.videos.streamsClient.getManifest(VideoId(url));
 
       if (manifest.videoOnly.isNotEmpty && manifest.audioOnly.isNotEmpty) {
-        final String audioUrl = manifest.audioOnly.last.url.toString();
+        final AudioOnlyStreamInfo audio = manifest.audioOnly.last;
+        final String audioUrl = audio.url.toString();
         final List<MdPlayerQuality> qualities = _uniqueQualities(
           manifest.videoOnly.map(
             (VideoOnlyStreamInfo stream) => MdPlayerQuality(
               label: stream.qualityLabel,
               videoUrl: stream.url.toString(),
               audioUrl: audioUrl,
+              videoCacheKey:
+                  mdPlayerYoutubeCacheKey(videoId, 'video', stream.tag),
+              audioCacheKey:
+                  mdPlayerYoutubeCacheKey(videoId, 'audio', audio.tag),
+              videoStreamIdentity: videoId,
+              audioStreamIdentity: videoId,
+              videoItag: stream.tag,
+              audioItag: audio.tag,
+              videoRole: 'video',
+              audioRole: 'audio',
             ),
           ),
         );
@@ -105,6 +149,14 @@ class MdPlayerSourceResolver {
           audioUrl: selected.audioUrl,
           qualityLabel: selected.label,
           qualities: qualities,
+          videoCacheKey: selected.videoCacheKey,
+          audioCacheKey: selected.audioCacheKey,
+          videoStreamIdentity: selected.videoStreamIdentity,
+          audioStreamIdentity: selected.audioStreamIdentity,
+          videoItag: selected.videoItag,
+          audioItag: selected.audioItag,
+          videoRole: 'video',
+          audioRole: 'audio',
         );
       }
 
@@ -113,6 +165,11 @@ class MdPlayerSourceResolver {
           (MuxedStreamInfo stream) => MdPlayerQuality(
             label: stream.qualityLabel,
             videoUrl: stream.url.toString(),
+            videoCacheKey:
+                mdPlayerYoutubeCacheKey(videoId, 'muxed', stream.tag),
+            videoStreamIdentity: videoId,
+            videoItag: stream.tag,
+            videoRole: 'muxed',
           ),
         ),
       );
@@ -122,6 +179,10 @@ class MdPlayerSourceResolver {
           videoUrl: selected.videoUrl,
           qualityLabel: selected.label,
           qualities: muxedQualities,
+          videoCacheKey: selected.videoCacheKey,
+          videoStreamIdentity: selected.videoStreamIdentity,
+          videoItag: selected.videoItag,
+          videoRole: 'muxed',
         );
       }
 

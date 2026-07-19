@@ -19,6 +19,7 @@ final class MediaSourceDescriptor {
   @NonNull final VideoAsset videoAsset;
   @Nullable final VideoAsset audioAsset;
   @NonNull final Map<String, String> httpHeaders;
+  @NonNull final Map<String, String> audioHttpHeaders;
   @Nullable final String videoFormatHint;
   @Nullable final String audioFormatHint;
   @Nullable final String videoCacheKey;
@@ -27,6 +28,8 @@ final class MediaSourceDescriptor {
   @Nullable final String audioStreamIdentity;
   @Nullable final Long videoItag;
   @Nullable final Long audioItag;
+  @Nullable final String videoRole;
+  @Nullable final String audioRole;
   @Nullable final String qualityLabel;
 
   MediaSourceDescriptor(
@@ -42,9 +45,46 @@ final class MediaSourceDescriptor {
       @Nullable Long videoItag,
       @Nullable Long audioItag,
       @Nullable String qualityLabel) {
+    this(
+        videoAsset,
+        audioAsset,
+        httpHeaders,
+        null,
+        videoFormatHint,
+        audioFormatHint,
+        videoCacheKey,
+        audioCacheKey,
+        videoStreamIdentity,
+        audioStreamIdentity,
+        videoItag,
+        audioItag,
+        null,
+        null,
+        qualityLabel);
+  }
+
+  MediaSourceDescriptor(
+      @NonNull VideoAsset videoAsset,
+      @Nullable VideoAsset audioAsset,
+      @NonNull Map<String, String> httpHeaders,
+      @Nullable Map<String, String> audioHttpHeaders,
+      @Nullable String videoFormatHint,
+      @Nullable String audioFormatHint,
+      @Nullable String videoCacheKey,
+      @Nullable String audioCacheKey,
+      @Nullable String videoStreamIdentity,
+      @Nullable String audioStreamIdentity,
+      @Nullable Long videoItag,
+      @Nullable Long audioItag,
+      @Nullable String videoRole,
+      @Nullable String audioRole,
+      @Nullable String qualityLabel) {
     this.videoAsset = videoAsset;
     this.audioAsset = audioAsset;
     this.httpHeaders = Collections.unmodifiableMap(new HashMap<>(httpHeaders));
+    this.audioHttpHeaders =
+        Collections.unmodifiableMap(
+            new HashMap<>(audioHttpHeaders == null ? httpHeaders : audioHttpHeaders));
     this.videoFormatHint = videoFormatHint;
     this.audioFormatHint = audioFormatHint;
     this.videoCacheKey = videoCacheKey;
@@ -53,6 +93,8 @@ final class MediaSourceDescriptor {
     this.audioStreamIdentity = audioStreamIdentity;
     this.videoItag = videoItag;
     this.audioItag = audioItag;
+    this.videoRole = videoRole;
+    this.audioRole = audioRole;
     this.qualityLabel = qualityLabel;
   }
 
@@ -74,18 +116,69 @@ final class MediaSourceDescriptor {
   }
 
   @NonNull
-  MediaSource build(@NonNull Context context, @NonNull String sourceId) {
-    MediaSource videoSource = buildAsset(context, videoAsset, sourceId);
-    if (audioAsset == null) {
-      return videoSource;
+  BuiltMediaSource build(
+      @NonNull Context context,
+      @NonNull String sourceId,
+      @Nullable MediaCacheManager.Lease retainedLease) {
+    MediaCacheManager.Lease lease = retainedLease;
+    boolean acquired = false;
+    if (lease == null && (isHttp(videoAsset) || isHttp(audioAsset))) {
+      lease = MediaCacheManager.getInstance().acquire(context);
+      acquired = lease != null;
     }
-    return new MergingMediaSource(
-        videoSource, buildAsset(context, audioAsset, sourceId + ":audio"));
+    try {
+      MediaSource videoSource = buildAsset(context, videoAsset, sourceId, videoCacheKey, lease);
+      MediaSource source =
+          audioAsset == null
+              ? videoSource
+              : new MergingMediaSource(
+                  videoSource,
+                  buildAsset(context, audioAsset, sourceId + ":audio", audioCacheKey, lease));
+      return new BuiltMediaSource(source, lease);
+    } catch (RuntimeException exception) {
+      if (acquired) {
+        lease.close();
+      }
+      throw exception;
+    }
   }
 
   private static MediaSource buildAsset(
-      Context context, VideoAsset asset, String sourceId) {
-    MediaItem mediaItem = asset.getMediaItem().buildUpon().setMediaId(sourceId).build();
-    return asset.getMediaSourceFactory(context).createMediaSource(mediaItem);
+      Context context,
+      VideoAsset asset,
+      String sourceId,
+      @Nullable String cacheKey,
+      @Nullable MediaCacheManager.Lease lease) {
+    MediaItem.Builder item = asset.getMediaItem().buildUpon().setMediaId(sourceId);
+    if (cacheKey != null) {
+      item.setCustomCacheKey(cacheKey);
+    }
+    MediaSource.Factory factory;
+    if (lease != null && asset instanceof HttpVideoAsset) {
+      HttpVideoAsset http = (HttpVideoAsset) asset;
+      factory =
+          http.getMediaSourceFactory(
+              context, lease.dataSourceFactory(http.createHttpDataSourceFactory()));
+    } else {
+      factory = asset.getMediaSourceFactory(context);
+    }
+    return factory.createMediaSource(item.build());
+  }
+
+  private static boolean isHttp(@Nullable VideoAsset asset) {
+    return asset != null
+        && asset.assetUrl != null
+        && (asset.assetUrl.startsWith("http://") || asset.assetUrl.startsWith("https://"));
+  }
+
+  static final class BuiltMediaSource {
+    @NonNull final MediaSource mediaSource;
+    @Nullable final MediaCacheManager.Lease lease;
+
+    BuiltMediaSource(
+        @NonNull MediaSource mediaSource, @Nullable MediaCacheManager.Lease lease) {
+      this.mediaSource = mediaSource;
+      this.lease = lease;
+    }
   }
 }

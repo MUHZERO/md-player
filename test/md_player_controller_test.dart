@@ -53,6 +53,7 @@ class _Platform extends MdPlayerAndroid {
     required String audioUri,
     VideoFormat? formatHint,
     Map<String, String> httpHeaders = const <String, String>{},
+    Map<String, String>? audioHttpHeaders,
   }) {
     return _create();
   }
@@ -131,6 +132,7 @@ class _Platform extends MdPlayerAndroid {
     String? operationId,
     String? audioUri,
     Map<String, String> httpHeaders = const <String, String>{},
+    Map<String, String>? audioHttpHeaders,
     VideoFormat? videoFormatHint,
     VideoFormat? audioFormatHint,
     String? videoCacheKey,
@@ -139,6 +141,8 @@ class _Platform extends MdPlayerAndroid {
     String? audioStreamIdentity,
     int? videoItag,
     int? audioItag,
+    String? videoRole,
+    String? audioRole,
     String? requestedLabel,
   }) {
     qualityTargets.add((textureId, newQuality));

@@ -47,6 +47,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
   @NonNull private final Handler handler;
   private final boolean debugEnabled;
   @NonNull private MediaSourceDescriptor lastConfirmedSourceDescriptor;
+  @Nullable private MediaCacheManager.Lease confirmedLease;
   @Nullable private SwitchOperation activeOperation;
   private long sourceGeneration;
   private boolean surfaceAvailable;
@@ -131,15 +132,24 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     this.debugEnabled =
         (context.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     this.exoPlayer = provider.get();
-    setSource(descriptor, 0, "initial");
-    exoPlayer.prepare();
-    attachSurface();
-    exoPlayer.addListener(
-        new ExoPlayerEventListener(exoPlayer, events, this::handlePlaybackError));
-    exoPlayer.addListener(new SwitchListener());
-    exoPlayer.addAnalyticsListener(new FrameListener());
-    setAudioAttributes(exoPlayer, options.mixWithOthers);
-    surfaceProducer.setCallback(this);
+    MediaSourceDescriptor.BuiltMediaSource initial = descriptor.build(context, "initial", null);
+    confirmedLease = initial.lease;
+    try {
+      exoPlayer.setMediaSource(initial.mediaSource, 0);
+      exoPlayer.prepare();
+      attachSurface();
+      exoPlayer.addListener(
+          new ExoPlayerEventListener(exoPlayer, events, this::handlePlaybackError));
+      exoPlayer.addListener(new SwitchListener());
+      exoPlayer.addAnalyticsListener(new FrameListener());
+      setAudioAttributes(exoPlayer, options.mixWithOthers);
+      surfaceProducer.setCallback(this);
+    } catch (RuntimeException exception) {
+      closeLease(confirmedLease);
+      confirmedLease = null;
+      exoPlayer.release();
+      throw exception;
+    }
   }
 
   void changeQuality(@NonNull String operationId, @NonNull MediaSourceDescriptor descriptor) {
@@ -151,10 +161,17 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     if (superseded != null) {
       snapshot = snapshot.withDesired(superseded.desiredPositionMs, superseded.desiredPlayWhenReady);
     }
+    MediaSourceDescriptor.BuiltMediaSource requested =
+        descriptor.build(context, "quality:" + (sourceGeneration + 1), null);
     cancelOperation();
     SwitchOperation operation =
         new SwitchOperation(
-            operationId, descriptor, lastConfirmedSourceDescriptor, snapshot, ++sourceGeneration);
+            operationId,
+            descriptor,
+            lastConfirmedSourceDescriptor,
+            requested.lease,
+            snapshot,
+            ++sourceGeneration);
     if (debugEnabled) {
       replacementCount++;
       operation.diagnostics = new LinkedHashMap<>();
@@ -172,11 +189,10 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
         operationHistory.remove(0);
       }
     }
-    MediaSource requestedSource = descriptor.build(context, operation.sourceId());
     activeOperation = operation;
     emit(operation, "preparing", null, null);
     try {
-      exoPlayer.setMediaSource(requestedSource, operation.desiredPositionMs);
+      exoPlayer.setMediaSource(requested.mediaSource, operation.desiredPositionMs);
       diagnostic(operation, "acceptanceNanos", SystemClock.elapsedRealtimeNanos());
       snapshot.restoreSettings(exoPlayer);
       exoPlayer.setPlayWhenReady(operation.desiredPlayWhenReady);
@@ -188,9 +204,14 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     }
   }
 
-  private void setSource(MediaSourceDescriptor descriptor, long positionMs, String sourceId) {
-    MediaSource source = descriptor.build(context, sourceId);
-    exoPlayer.setMediaSource(source, positionMs);
+  private void setSource(
+      MediaSourceDescriptor descriptor,
+      long positionMs,
+      String sourceId,
+      @Nullable MediaCacheManager.Lease retainedLease) {
+    MediaSourceDescriptor.BuiltMediaSource source =
+        descriptor.build(context, sourceId, retainedLease);
+    exoPlayer.setMediaSource(source.mediaSource, positionMs);
   }
 
   private final class SwitchListener implements Player.Listener {
@@ -294,9 +315,14 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     }
     cancelTimeout(operation);
     if (operation.rollback) {
+      closeLease(operation.requestedLease);
+      operation.requestedLease = null;
       emit(operation, "failed", operation.failureReason, true);
       finishDiagnostics(operation, "failed", true);
     } else {
+      closeLease(confirmedLease);
+      confirmedLease = operation.requestedLease;
+      operation.requestedLease = null;
       lastConfirmedSourceDescriptor = operation.requested;
       emit(operation, "completed", null, null);
       finishDiagnostics(operation, "completed", null);
@@ -319,6 +345,8 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     cancelTimeout(operation);
     if (operation.rollback) {
       exoPlayer.stop();
+      closeLease(operation.requestedLease);
+      operation.requestedLease = null;
       emit(operation, "failed", operation.failureReason, false);
       finishDiagnostics(operation, "failed", false);
       activeOperation = null;
@@ -337,13 +365,16 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
       setSource(
           operation.previous,
           operation.desiredPositionMs,
-          operation.sourceId());
+          operation.sourceId(),
+          confirmedLease);
       operation.snapshot.restoreSettings(exoPlayer);
       exoPlayer.setPlayWhenReady(operation.desiredPlayWhenReady);
       exoPlayer.prepare();
       schedule(operation, ROLLBACK_TIMEOUT_MS, "rollback preparation timeout");
     } catch (RuntimeException rollbackError) {
       exoPlayer.stop();
+      closeLease(operation.requestedLease);
+      operation.requestedLease = null;
       emit(operation, "failed", reason, false);
       finishDiagnostics(operation, "failed", false);
       activeOperation = null;
@@ -381,6 +412,8 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     SwitchOperation operation = activeOperation;
     if (operation != null) {
       cancelTimeout(operation);
+      closeLease(operation.requestedLease);
+      operation.requestedLease = null;
       finishDiagnostics(operation, "cancelled", null);
       activeOperation = null;
     }
@@ -557,6 +590,8 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     }
     disposed = true;
     cancelOperation();
+    closeLease(confirmedLease);
+    confirmedLease = null;
     surfaceAvailable = false;
     surfaceProducer.release();
     exoPlayer.release();
@@ -652,6 +687,7 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     final String id;
     final MediaSourceDescriptor requested;
     final MediaSourceDescriptor previous;
+    @Nullable MediaCacheManager.Lease requestedLease;
     final PlaybackSnapshot snapshot;
     long desiredPositionMs;
     boolean desiredPlayWhenReady;
@@ -669,11 +705,13 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
         String id,
         MediaSourceDescriptor requested,
         MediaSourceDescriptor previous,
+        @Nullable MediaCacheManager.Lease requestedLease,
         PlaybackSnapshot snapshot,
         long sourceGeneration) {
       this.id = id;
       this.requested = requested;
       this.previous = previous;
+      this.requestedLease = requestedLease;
       this.snapshot = snapshot;
       this.desiredPositionMs = snapshot.positionMs;
       this.desiredPlayWhenReady = snapshot.playWhenReady;
@@ -682,6 +720,12 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
 
     String sourceId() {
       return "quality:" + sourceGeneration;
+    }
+  }
+
+  private static void closeLease(@Nullable MediaCacheManager.Lease lease) {
+    if (lease != null) {
+      lease.close();
     }
   }
 }

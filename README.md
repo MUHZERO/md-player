@@ -15,6 +15,7 @@ video-only stream plus an audio-only stream.
 - Video quality switching while keeping the existing audio stream
 - Example app that resolves YouTube streams outside the native plugin
 - Pigeon-generated platform messages kept from source
+- Opt-in bounded Media3 byte caching on Android
 
 ## Usage
 
@@ -36,6 +37,23 @@ To switch video quality for the same texture:
 ```dart
 await MdPlayerAndroid().changeQuality(textureId, newVideoOnlyUrl);
 ```
+
+To enable the process-wide byte cache before creating players:
+
+```dart
+await MdPlayerCache.configure(
+  MdPlayerCacheConfiguration(maxBytes: 256 * 1024 * 1024),
+);
+
+final MdPlayerCacheStats stats = await MdPlayerCache.stats();
+await MdPlayerCache.removeVideo(youtubeVideoId);
+await MdPlayerCache.disable(); // Keeps cached bytes on disk.
+```
+
+Caching is disabled by default and only applies to HTTP(S) media. It is an LRU
+playback cache, not a download, prefetch, or offline API. Per-video removal is
+available for progressive YouTube streams resolved by `MdPlayerSourceResolver`;
+direct URLs keep Media3's URI cache key.
 
 ## YouTube
 

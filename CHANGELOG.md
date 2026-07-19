@@ -1,3 +1,8 @@
+## NEXT
+
+* Adds opt-in bounded Media3 byte caching, process-session statistics, stable
+  progressive YouTube stream keys, and exact per-video removal.
+
 ## 2.7.3
 
 * Updates Media3-ExoPlayer to 1.4.1.

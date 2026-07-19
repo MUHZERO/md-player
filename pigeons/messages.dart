@@ -53,6 +53,7 @@ class ChangeQualityMessage {
   String? videoUri;
   String? audioUri;
   Map<String?, String?>? httpHeaders;
+  Map<String?, String?>? audioHttpHeaders;
   String? videoFormatHint;
   String? audioFormatHint;
   String? videoCacheKey;
@@ -61,6 +62,8 @@ class ChangeQualityMessage {
   String? audioStreamIdentity;
   int? videoItag;
   int? audioItag;
+  String? videoRole;
+  String? audioRole;
   String? requestedLabel;
 }
 
@@ -72,6 +75,44 @@ class CreateMessage {
   String? packageName;
   String? formatHint;
   Map<String?, String?> httpHeaders;
+  Map<String?, String?>? audioHttpHeaders;
+  String? audioFormatHint;
+  String? videoCacheKey;
+  String? audioCacheKey;
+  String? videoStreamIdentity;
+  String? audioStreamIdentity;
+  int? videoItag;
+  int? audioItag;
+  String? videoRole;
+  String? audioRole;
+}
+
+class CacheConfigurationMessage {
+  CacheConfigurationMessage(
+      {required this.maxBytes, required this.directoryName});
+  int maxBytes;
+  String directoryName;
+}
+
+class CacheStatsMessage {
+  CacheStatsMessage({
+    required this.enabled,
+    required this.currentBytes,
+    required this.maxBytes,
+    required this.cachedResources,
+    required this.cacheReadBytes,
+    required this.upstreamReadBytes,
+    required this.cacheReadOperations,
+    required this.upstreamOpenOperations,
+  });
+  bool enabled;
+  int currentBytes;
+  int maxBytes;
+  int cachedResources;
+  int cacheReadBytes;
+  int upstreamReadBytes;
+  int cacheReadOperations;
+  int upstreamOpenOperations;
 }
 
 class MixWithOthersMessage {
@@ -93,4 +134,14 @@ abstract class AndroidVideoPlayerApi {
   void seekTo(PositionMessage msg);
   void pause(TextureMessage msg);
   void setMixWithOthers(MixWithOthersMessage msg);
+  @TaskQueue(type: TaskQueueType.serialBackgroundThread)
+  void configureCache(CacheConfigurationMessage msg);
+  @TaskQueue(type: TaskQueueType.serialBackgroundThread)
+  void disableCache();
+  @TaskQueue(type: TaskQueueType.serialBackgroundThread)
+  CacheStatsMessage cacheStats();
+  @TaskQueue(type: TaskQueueType.serialBackgroundThread)
+  void clearCache();
+  @TaskQueue(type: TaskQueueType.serialBackgroundThread)
+  void removeCachedVideo(String videoId);
 }
