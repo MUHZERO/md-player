@@ -19,6 +19,7 @@ import androidx.media3.datasource.DataSpec;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Map;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -122,6 +123,24 @@ public final class MediaCacheManagerTest {
     lease.close();
     manager.removeVideo("abc");
     assertEquals(0, manager.stats().getCachedResources().longValue());
+  }
+
+  @Test
+  public void debugSnapshotTracksOneGenerationAndLeaseLifecycle() {
+    manager.configure(context, MediaCacheManager.MIN_BYTES, "cache-debug");
+    Map<String, Object> configured = manager.debugSnapshot();
+    assertEquals(1, configured.get("openCacheCount"));
+    assertEquals(1, configured.get("cacheCreateCount"));
+    assertNotNull(configured.get("currentGeneration"));
+
+    MediaCacheManager.Lease lease = manager.acquire(context);
+    assertNotNull(lease);
+    assertEquals(1, manager.debugSnapshot().get("currentLeases"));
+    manager.disable();
+    assertEquals(1, manager.debugSnapshot().get("retiredLeases"));
+    lease.close();
+    assertEquals(0, manager.debugSnapshot().get("openCacheCount"));
+    assertEquals(1, manager.debugSnapshot().get("cacheReleaseCount"));
   }
 
   private static void readFully(DataSource source, DataSpec spec) throws IOException {

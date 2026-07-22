@@ -58,6 +58,8 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
   private int rejectedStaleFrameCount;
   private int surfaceLossCount;
   private long lastSurfaceAttachmentNanos;
+  private long initialFirstFrameNanos;
+  private long lastFirstFrameNanos;
   @NonNull private final List<Map<String, Object>> operationHistory = new ArrayList<>();
 
   @NonNull
@@ -229,6 +231,12 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
         @NonNull EventTime eventTime, @NonNull Object output, long renderTimeMs) {
       SwitchOperation operation = activeOperation;
       if (operation == null) {
+        if (debugEnabled) {
+          lastFirstFrameNanos = SystemClock.elapsedRealtimeNanos();
+          if (initialFirstFrameNanos == 0) {
+            initialFirstFrameNanos = lastFirstFrameNanos;
+          }
+        }
         return;
       }
       if (!operation.sourceId().equals(sourceId(eventTime))) {
@@ -239,8 +247,9 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
       }
       if (debugEnabled) {
         acceptedFrameCount++;
+        lastFirstFrameNanos = SystemClock.elapsedRealtimeNanos();
       }
-      diagnostic(operation, "firstFrameNanos", SystemClock.elapsedRealtimeNanos());
+      diagnostic(operation, "firstFrameNanos", lastFirstFrameNanos);
       operation.firstFrame = true;
       if (operation.ready) {
         finishReadyOperation(operation);
@@ -296,8 +305,9 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     if (operation != null && operation.sourceId().equals(sourceId)) {
       if (debugEnabled) {
         acceptedFrameCount++;
+        lastFirstFrameNanos = SystemClock.elapsedRealtimeNanos();
       }
-      diagnostic(operation, "firstFrameNanos", SystemClock.elapsedRealtimeNanos());
+      diagnostic(operation, "firstFrameNanos", lastFirstFrameNanos);
       operation.firstFrame = true;
       if (operation.ready) {
         finishReadyOperation(operation);
@@ -611,6 +621,13 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     snapshot.put("activeOperation", activeOperation == null ? null : activeOperation.id);
     snapshot.put("disposed", disposed);
     snapshot.put("confirmedSource", label(lastConfirmedSourceDescriptor));
+    snapshot.put(
+        "confirmedCacheGeneration", confirmedLease == null ? null : confirmedLease.generationId());
+    snapshot.put(
+        "requestedCacheGeneration",
+        activeOperation == null || activeOperation.requestedLease == null
+            ? null
+            : activeOperation.requestedLease.generationId());
     snapshot.put("sourceGeneration", sourceGeneration);
     snapshot.put("replacementCount", replacementCount);
     snapshot.put("rollbackCount", rollbackCount);
@@ -619,6 +636,8 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     snapshot.put("surfaceAttached", surfaceAvailable);
     snapshot.put("surfaceLossCount", surfaceLossCount);
     snapshot.put("lastSurfaceAttachmentNanos", lastSurfaceAttachmentNanos);
+    snapshot.put("initialFirstFrameNanos", initialFirstFrameNanos);
+    snapshot.put("lastFirstFrameNanos", lastFirstFrameNanos);
     snapshot.put("operations", new ArrayList<>(operationHistory));
     return snapshot;
   }
@@ -629,6 +648,8 @@ final class VideoPlayer implements TextureRegistry.SurfaceProducer.Callback {
     acceptedFrameCount = 0;
     rejectedStaleFrameCount = 0;
     surfaceLossCount = 0;
+    initialFirstFrameNanos = 0;
+    lastFirstFrameNanos = 0;
     operationHistory.clear();
   }
 

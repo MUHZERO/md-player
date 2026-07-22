@@ -64,4 +64,71 @@ void main() {
       await server.close();
     }
   });
+
+  test('range server supports HEAD, open ranges, query reuse and controls',
+      () async {
+    final RangeHttpServer server = RangeHttpServer(<String, List<int>>{
+      'fixture.bin': List<int>.generate(10, (int index) => index),
+    });
+    final HttpClient client = HttpClient();
+    await server.start();
+    try {
+      final HttpClientRequest head =
+          await client.headUrl(server.origin.resolve('/video/fixture.bin'));
+      final HttpClientResponse headResponse = await head.close();
+      expect(headResponse.statusCode, HttpStatus.ok);
+      expect(headResponse.contentLength, 10);
+      expect(await headResponse.toList(), isEmpty);
+
+      final HttpClientRequest open = await client.getUrl(
+        server.origin.resolve('/video/fixture.bin?token=changed'),
+      );
+      open.headers.set(HttpHeaders.rangeHeader, 'bytes=7-');
+      final HttpClientResponse partial = await open.close();
+      expect(partial.statusCode, HttpStatus.partialContent);
+      expect(partial.headers.value(HttpHeaders.contentRangeHeader),
+          'bytes 7-9/10');
+      expect(
+        await partial.expand((List<int> value) => value).toList(),
+        <int>[7, 8, 9],
+      );
+      expect(server.requestsByPath, <String, int>{'/video/fixture.bin': 2});
+      expect(server.bytesByPath, <String, int>{'/video/fixture.bin': 3});
+
+      final HttpClientResponse unavailable = await (await client.getUrl(
+        server.origin.resolve('/_phase3/availability?available=false'),
+      ))
+          .close();
+      await unavailable.drain<void>();
+      final HttpClientResponse rejected = await (await client.getUrl(
+        server.origin.resolve('/video/fixture.bin'),
+      ))
+          .close();
+      expect(rejected.statusCode, HttpStatus.serviceUnavailable);
+      await rejected.drain<void>();
+
+      final HttpClientResponse reset = await (await client.getUrl(
+        server.origin.resolve('/_phase3/reset'),
+      ))
+          .close();
+      await reset.drain<void>();
+      expect(server.requestsByPath, isEmpty);
+      expect(server.bytesByPath, isEmpty);
+    } finally {
+      client.close(force: true);
+      await server.close();
+    }
+  });
+
+  test('range server restarts on a different ephemeral port', () async {
+    final RangeHttpServer server = RangeHttpServer(<String, List<int>>{
+      'fixture.bin': <int>[1]
+    });
+    await server.start();
+    final int first = server.origin.port;
+    await server.close();
+    await server.start();
+    expect(server.origin.port, isNot(first));
+    await server.close();
+  });
 }

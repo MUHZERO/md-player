@@ -10,5 +10,7 @@ Future<void> main() => integrationDriver(
       responseDataCallback: (Map<String, dynamic>? data) async {
         // The runner extracts this stable one-line payload into each raw report.
         print('PHASE_2_1_REPORT=${jsonEncode(data ?? <String, dynamic>{})}');
+        print(
+            'PHASE_3_CACHE_REPORT=${jsonEncode(data ?? <String, dynamic>{})}');
       },
     );

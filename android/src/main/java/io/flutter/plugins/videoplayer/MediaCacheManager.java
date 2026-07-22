@@ -24,6 +24,9 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -43,6 +46,10 @@ final class MediaCacheManager {
   private long upstreamReadBytes;
   private long cacheReadOperations;
   private long upstreamOpenOperations;
+  private long generationSequence;
+  private int cacheCreateCount;
+  private int cacheReleaseCount;
+  private int openCacheCount;
 
   static MediaCacheManager getInstance() {
     return INSTANCE;
@@ -62,6 +69,7 @@ final class MediaCacheManager {
     lastConfiguration = null;
     pendingConfigurations.set(0);
     resetCounters();
+    clearDebugDiagnostics();
   }
 
   void configure(Context value, long maxBytes, String directoryName) {
@@ -212,7 +220,9 @@ final class MediaCacheManager {
               new LeastRecentlyUsedCacheEvictor(configuration.maxBytes),
               database);
       cache.checkInitialization();
-      return new Generation(configuration, cache, database);
+      cacheCreateCount++;
+      openCacheCount++;
+      return new Generation(++generationSequence, configuration, cache, database);
     } catch (RuntimeException | IOException exception) {
       database.close();
       throw exception instanceof RuntimeException
@@ -221,10 +231,13 @@ final class MediaCacheManager {
     }
   }
 
-  private static void release(@Nullable Generation generation) {
-    if (generation != null) {
+  private void release(@Nullable Generation generation) {
+    if (generation != null && !generation.released) {
+      generation.released = true;
       generation.cache.release();
       generation.database.close();
+      cacheReleaseCount++;
+      openCacheCount--;
     }
   }
 
@@ -259,6 +272,31 @@ final class MediaCacheManager {
     upstreamReadBytes = 0;
     cacheReadOperations = 0;
     upstreamOpenOperations = 0;
+  }
+
+  synchronized Map<String, Object> debugSnapshot() {
+    Map<String, Object> snapshot = new LinkedHashMap<>();
+    snapshot.put("managerIdentity", System.identityHashCode(this));
+    snapshot.put("pendingConfigurations", pendingConfigurations.get());
+    snapshot.put("cacheCreateCount", cacheCreateCount);
+    snapshot.put("cacheReleaseCount", cacheReleaseCount);
+    snapshot.put("openCacheCount", openCacheCount);
+    snapshot.put("currentGeneration", current == null ? null : current.id);
+    snapshot.put("retiredGeneration", retired == null ? null : retired.id);
+    snapshot.put("currentLeases", current == null ? 0 : current.leases);
+    snapshot.put("retiredLeases", retired == null ? 0 : retired.leases);
+    Generation generation = current != null ? current : retired;
+    List<String> keys =
+        generation == null ? new ArrayList<>() : new ArrayList<>(generation.cache.getKeys());
+    Collections.sort(keys);
+    snapshot.put("cacheKeys", keys);
+    snapshot.put("cacheBytes", generation == null ? 0L : generation.cache.getCacheSpace());
+    return snapshot;
+  }
+
+  synchronized void clearDebugDiagnostics() {
+    cacheCreateCount = 0;
+    cacheReleaseCount = 0;
   }
 
   private static void validate(long maxBytes, String directoryName) {
@@ -333,6 +371,10 @@ final class MediaCacheManager {
                 })
             .createDataSource();
       };
+    }
+
+    long generationId() {
+      return generation.id;
     }
 
     @Override
@@ -418,17 +460,21 @@ final class MediaCacheManager {
   }
 
   private static final class Generation {
+    final long id;
     final Configuration configuration;
     final SimpleCache cache;
     final StandaloneDatabaseProvider database;
     boolean enabled = true;
     boolean temporary;
+    boolean released;
     int leases;
 
     Generation(
+        long id,
         Configuration configuration,
         SimpleCache cache,
         StandaloneDatabaseProvider database) {
+      this.id = id;
       this.configuration = configuration;
       this.cache = cache;
       this.database = database;

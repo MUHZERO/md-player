@@ -407,6 +407,7 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
     snapshot.put("playerDisposeCount", playerDisposeCount);
     snapshot.put("players", players);
     snapshot.put("disposedPlayers", new ArrayList<>(disposedPlayerSnapshots));
+    snapshot.put("cache", MediaCacheManager.getInstance().debugSnapshot());
     return snapshot;
   }
 
@@ -414,6 +415,7 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
     playerCreateCount = 0;
     playerDisposeCount = 0;
     disposedPlayerSnapshots.clear();
+    MediaCacheManager.getInstance().clearDebugDiagnostics();
     for (int i = 0; i < videoPlayers.size(); i++) {
       videoPlayers.valueAt(i).clearDebugDiagnostics();
     }
