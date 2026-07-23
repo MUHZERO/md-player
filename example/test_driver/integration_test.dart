@@ -12,5 +12,6 @@ Future<void> main() => integrationDriver(
         print('PHASE_2_1_REPORT=${jsonEncode(data ?? <String, dynamic>{})}');
         print(
             'PHASE_3_CACHE_REPORT=${jsonEncode(data ?? <String, dynamic>{})}');
+        print('PHASE_4_UI_REPORT=${jsonEncode(data ?? <String, dynamic>{})}');
       },
     );

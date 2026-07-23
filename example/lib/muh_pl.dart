@@ -10,17 +10,27 @@ class MuhPl extends StatefulWidget {
 }
 
 class _MuhPlState extends State<MuhPl> {
+  static const List<DeviceOrientation> _normalOrientations =
+      <DeviceOrientation>[DeviceOrientation.portraitUp];
   final TextEditingController _urlController = TextEditingController(
     text: 'https://www.youtube.com/watch?v=qy6b7p92YAI',
   );
   MdPlayerController? _controller;
   bool _fullscreen = false;
+  bool _modern = false;
+  bool _compact = false;
+
+  @override
+  void initState() {
+    super.initState();
+    SystemChrome.setPreferredOrientations(_normalOrientations);
+  }
 
   @override
   void dispose() {
     _controller?.dispose();
     _urlController.dispose();
-    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    SystemChrome.setPreferredOrientations(_normalOrientations);
     super.dispose();
   }
 
@@ -47,7 +57,7 @@ class _MuhPlState extends State<MuhPl> {
               DeviceOrientation.landscapeLeft,
               DeviceOrientation.landscapeRight,
             ]
-          : <DeviceOrientation>[DeviceOrientation.portraitUp],
+          : _normalOrientations,
     );
   }
 
@@ -61,6 +71,12 @@ class _MuhPlState extends State<MuhPl> {
           child: Center(
             child: MdPlayer(
               controller: controller,
+              controlsMode: _modern
+                  ? MdPlayerControlsMode.modern
+                  : MdPlayerControlsMode.legacy,
+              title: _modern ? 'Modern fullscreen' : null,
+              isFullscreen: true,
+              onExitFullscreen: _toggleFullscreen,
               onFullscreenPressed: _toggleFullscreen,
             ),
           ),
@@ -90,10 +106,44 @@ class _MuhPlState extends State<MuhPl> {
             label: const Text('Play'),
           ),
           const SizedBox(height: 16),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Modern controls (opt-in)'),
+            value: _modern,
+            onChanged: (bool value) => setState(() => _modern = value),
+          ),
+          if (_modern)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Compact layout preview'),
+              value: _compact,
+              onChanged: (bool value) => setState(() => _compact = value),
+            ),
           if (controller != null)
-            MdPlayer(
-              controller: controller,
-              onFullscreenPressed: _toggleFullscreen,
+            Center(
+              child: SizedBox(
+                width: _compact ? 420 : double.infinity,
+                child: MdPlayer(
+                  controller: controller,
+                  controlsMode: _modern
+                      ? MdPlayerControlsMode.modern
+                      : MdPlayerControlsMode.legacy,
+                  controlsConfiguration: MdPlayerControlsConfiguration(
+                    enableVolume: true,
+                  ),
+                  labels: const MdPlayerControlsLabels(
+                    settings: 'Player options',
+                    qualityFailed: 'Quality change failed; playback restored',
+                  ),
+                  style: const MdPlayerStyle(accent: Colors.amber),
+                  title: _modern ? 'Modern controls' : null,
+                  subtitle: _modern ? 'Quality, speed, volume, and keys' : null,
+                  isFullscreen: false,
+                  onEnterFullscreen: _toggleFullscreen,
+                  onRetry: () => _load(_urlController.text),
+                  onFullscreenPressed: _toggleFullscreen,
+                ),
+              ),
             ),
         ],
       ),

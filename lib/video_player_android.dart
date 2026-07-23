@@ -4,5 +4,6 @@
 
 export 'src/android_video_player.dart';
 export 'src/md_player_controller.dart';
+export 'src/md_player_controls.dart';
 export 'src/md_player_source.dart';
 export 'src/md_player_widget.dart';

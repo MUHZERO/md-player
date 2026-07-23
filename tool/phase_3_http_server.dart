@@ -24,10 +24,11 @@ Future<void> main(List<String> arguments) async {
   final RangeHttpServer server = RangeHttpServer(fixtures);
   await server.start(address: InternetAddress.anyIPv4);
   stdout.writeln('PHASE_3_SERVER=${jsonEncode(<String, Object>{
-    'port': server.origin.port,
-  })}');
+        'port': server.origin.port,
+      })}');
   final Completer<void> done = Completer<void>();
-  final List<StreamSubscription<ProcessSignal>> signals = <StreamSubscription<ProcessSignal>>[
+  final List<StreamSubscription<ProcessSignal>> signals =
+      <StreamSubscription<ProcessSignal>>[
     ProcessSignal.sigint.watch().listen((_) {
       if (!done.isCompleted) done.complete();
     }),

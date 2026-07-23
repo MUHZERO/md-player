@@ -45,6 +45,7 @@ class MdPlayerValue {
     this.isBuffering = false,
     this.isResolving = false,
     this.playbackSpeed = 1.0,
+    this.volume = 1.0,
     this.qualityLabel = 'auto',
     this.qualities = const <MdPlayerQuality>[],
     this.errorDescription,
@@ -64,6 +65,7 @@ class MdPlayerValue {
   final bool isBuffering;
   final bool isResolving;
   final double playbackSpeed;
+  final double volume;
   final String qualityLabel;
   final List<MdPlayerQuality> qualities;
   final String? errorDescription;
@@ -88,6 +90,7 @@ class MdPlayerValue {
     bool? isBuffering,
     bool? isResolving,
     double? playbackSpeed,
+    double? volume,
     String? qualityLabel,
     List<MdPlayerQuality>? qualities,
     Object? errorDescription = _errorDescriptionNotProvided,
@@ -102,6 +105,7 @@ class MdPlayerValue {
       isBuffering: isBuffering ?? this.isBuffering,
       isResolving: isResolving ?? this.isResolving,
       playbackSpeed: playbackSpeed ?? this.playbackSpeed,
+      volume: volume ?? this.volume,
       qualityLabel: qualityLabel ?? this.qualityLabel,
       qualities: qualities ?? this.qualities,
       errorDescription:
@@ -145,6 +149,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
   int _playbackCommand = 0;
   int _positionCommand = 0;
   int _speedCommand = 0;
+  int _volumeCommand = 0;
   int _qualityCommand = 0;
   int _qualityOperationId = 0;
   bool _positionRequestInFlight = false;
@@ -152,6 +157,8 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
   bool _resolverClosed = false;
   MdPlayerSource? _source;
   MdPlayerQuality? _requestedQuality;
+  MdPlayerQuality? _confirmedQuality;
+  double _lastNonzeroVolume = 1.0;
   String? _activeQualityOperationId;
 
   ValueListenable<MdQualitySwitchState> get qualitySwitchState =>
@@ -162,10 +169,17 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
 
   int get playerId => _textureId;
 
+  /// The exact quality last confirmed by the native player.
+  ///
+  /// Unlike [MdPlayerValue.qualityLabel], this remains unambiguous when a
+  /// source exposes duplicate labels and is unchanged by failed switches.
+  MdPlayerQuality? get confirmedQuality => _confirmedQuality;
+
   Future<void> initialize() async {
     if (_isDisposed) {
       return;
     }
+    _confirmedQuality = null;
     final int operation = _beginPlayerOperation();
     final Future<void> released = _releaseActivePlayer();
     value = value.copyWith(isResolving: true, errorDescription: null);
@@ -184,6 +198,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
       }
       final MdPlayerSource source = resolution.$2!;
       _source = source;
+      _confirmedQuality = _qualityForSource(source);
       value = value.copyWith(
         isResolving: false,
         qualities: List<MdPlayerQuality>.unmodifiable(source.qualities),
@@ -288,7 +303,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
       return false;
     }
     try {
-      await _platform.setVolume(textureId, 1);
+      await _platform.setVolume(textureId, value.volume);
     } on PlatformException catch (error) {
       _setPlatformError(error, operation: operation, textureId: textureId);
     }
@@ -340,6 +355,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     if (event.phase == MdQualitySwitchPhase.completed) {
       final MdPlayerQuality? quality = _requestedQuality;
       if (quality != null) {
+        _confirmedQuality = quality;
         value = value.copyWith(qualityLabel: quality.label);
         _source = MdPlayerSource(
           videoUrl: quality.videoUrl,
@@ -523,6 +539,33 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
   }
 
+  Future<void> setVolume(double volume) async {
+    if (!_hasActivePlayer) {
+      return;
+    }
+    final double clamped = volume.clamp(0.0, 1.0);
+    final int textureId = _textureId;
+    final int operation = _playerOperation;
+    final int command = ++_volumeCommand;
+    if (clamped > 0) {
+      _lastNonzeroVolume = clamped;
+    }
+    value = value.copyWith(volume: clamped);
+    try {
+      await _platform.setVolume(textureId, clamped);
+    } on PlatformException catch (error) {
+      _setPlatformError(
+        error,
+        operation: operation,
+        textureId: textureId,
+        volumeCommand: command,
+      );
+    }
+  }
+
+  Future<void> toggleMute() =>
+      setVolume(value.volume == 0 ? _lastNonzeroVolume : 0);
+
   /// Starts a quality switch on the current player.
   ///
   /// For compatibility, this future completes when Android accepts the
@@ -597,6 +640,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     _playbackCommand++;
     _positionCommand++;
     _speedCommand++;
+    _volumeCommand++;
     _qualityCommand++;
     _completePendingQualitySwitch();
     _qualitySwitchState.value = const MdQualitySwitchState();
@@ -626,6 +670,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     _playerOperation++;
     _playbackCommand++;
     _speedCommand++;
+    _volumeCommand++;
     if (invalidateQuality) {
       _qualityCommand++;
       _completePendingQualitySwitch();
@@ -758,12 +803,14 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     int? playbackCommand,
     int? positionCommand,
     int? speedCommand,
+    int? volumeCommand,
     int? qualityCommand,
   }) {
     if (!_isCurrentPlayer(operation, textureId) ||
         (playbackCommand != null && playbackCommand != _playbackCommand) ||
         (positionCommand != null && positionCommand != _positionCommand) ||
         (speedCommand != null && speedCommand != _speedCommand) ||
+        (volumeCommand != null && volumeCommand != _volumeCommand) ||
         (qualityCommand != null && qualityCommand != _qualityCommand)) {
       return;
     }
@@ -773,5 +820,16 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
       isBuffering: false,
       errorDescription: error.message ?? error.toString(),
     );
+  }
+
+  MdPlayerQuality? _qualityForSource(MdPlayerSource source) {
+    for (final MdPlayerQuality quality in source.qualities) {
+      if (quality.videoUrl == source.videoUrl &&
+          quality.audioUrl == source.audioUrl &&
+          quality.videoItag == source.videoItag) {
+        return quality;
+      }
+    }
+    return null;
   }
 }

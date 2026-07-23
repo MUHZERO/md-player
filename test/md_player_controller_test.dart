@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:md_player_android/md_player_android.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
@@ -28,12 +28,14 @@ class _Platform extends MdPlayerAndroid {
   final List<Completer<Duration>> positions = <Completer<Duration>>[];
   final List<(int, Duration)> seeks = <(int, Duration)>[];
   final List<(int, double)> speeds = <(int, double)>[];
+  final List<(int, double)> volumes = <(int, double)>[];
   final List<Completer<void>> qualityChanges = <Completer<void>>[];
   final List<(int, String)> qualityTargets = <(int, String)>[];
   final List<String?> qualityOperationIds = <String?>[];
   final List<String?> qualityAudioUris = <String?>[];
   Completer<void>? nextPlay;
   Completer<void>? nextDispose;
+  Completer<void>? nextVolume;
   Object? creationError;
   int initCalls = 0;
 
@@ -92,7 +94,12 @@ class _Platform extends MdPlayerAndroid {
   }
 
   @override
-  Future<void> setVolume(int textureId, double volume) async {}
+  Future<void> setVolume(int textureId, double volume) async {
+    volumes.add((textureId, volume));
+    final Completer<void>? pending = nextVolume;
+    nextVolume = null;
+    await pending?.future;
+  }
 
   @override
   Future<void> play(int textureId) {
@@ -613,6 +620,97 @@ void main() {
     expect(controller.qualitySwitchState.value.status,
         MdQualitySwitchStatus.failed);
     expect(controller.qualitySwitchState.value.rollbackSucceeded, true);
+    await controller.dispose();
+  });
+
+  test('latest volume command wins and mute restores the last nonzero value',
+      () async {
+    final _Resolver resolver = _Resolver();
+    final _Platform platform = _Platform();
+    final MdPlayerController controller = MdPlayerController.network('url',
+        resolver: resolver, platform: platform);
+    await _finishInitialization(
+        controller.initialize(), resolver, platform, 21);
+    platform.volumes.clear();
+    final Completer<void> slow = Completer<void>();
+    platform.nextVolume = slow;
+
+    final Future<void> first = controller.setVolume(0.4);
+    await controller.setVolume(0.8);
+    slow.completeError(PlatformException(code: 'stale'));
+    await first;
+    expect(controller.value.hasError, isFalse);
+    await controller.toggleMute();
+    expect(controller.value.volume, 0);
+    await controller.toggleMute();
+
+    expect(controller.value.volume, 0.8);
+    expect(platform.volumes, <(int, double)>[
+      (21, 0.4),
+      (21, 0.8),
+      (21, 0),
+      (21, 0.8),
+    ]);
+    await controller.dispose();
+  });
+
+  test('confirmed quality uses identity when labels are duplicated', () async {
+    final _Resolver resolver = _Resolver();
+    final _Platform platform = _Platform();
+    final MdPlayerQuality first = const MdPlayerQuality(
+      label: '720p',
+      videoUrl: 'first',
+      videoItag: 1,
+    );
+    final MdPlayerQuality second = const MdPlayerQuality(
+      label: '720p',
+      videoUrl: 'second',
+      videoItag: 2,
+    );
+    final MdPlayerController controller = MdPlayerController.network('url',
+        resolver: resolver, platform: platform);
+    await _finishInitialization(
+      controller.initialize(),
+      resolver,
+      platform,
+      22,
+      source: MdPlayerSource(
+        videoUrl: first.videoUrl,
+        videoItag: first.videoItag,
+        qualityLabel: first.label,
+        qualities: <MdPlayerQuality>[first, second],
+      ),
+    );
+    expect(identical(controller.confirmedQuality, first), isTrue);
+
+    final Future<void> accepted = controller.setQuality(second);
+    await _flush();
+    platform.qualityChanges.single.complete();
+    await accepted;
+    platform.emitQuality(
+      22,
+      MdQualitySwitchEvent(
+        operationId: platform.qualityOperationIds.single!,
+        phase: MdQualitySwitchPhase.failed,
+        requestedLabel: second.label,
+        rollbackSucceeded: true,
+      ),
+    );
+    expect(identical(controller.confirmedQuality, first), isTrue);
+
+    final Future<void> retry = controller.setQuality(second);
+    await _flush();
+    platform.qualityChanges.last.complete();
+    await retry;
+    platform.emitQuality(
+      22,
+      MdQualitySwitchEvent(
+        operationId: platform.qualityOperationIds.last!,
+        phase: MdQualitySwitchPhase.completed,
+        requestedLabel: second.label,
+      ),
+    );
+    expect(identical(controller.confirmedQuality, second), isTrue);
     await controller.dispose();
   });
 
