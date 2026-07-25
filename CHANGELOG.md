@@ -1,7 +1,19 @@
-## NEXT
+## Unreleased
 
+* Adds race-safe controller initialization, playback commands, volume/mute,
+  asynchronous disposal, and authoritative quality confirmation.
+* Adds same-player manual quality switching with first-frame confirmation,
+  rapid-operation authority, and rollback.
 * Adds opt-in bounded Media3 byte caching, process-session statistics, stable
-  progressive YouTube stream keys, and exact per-video removal.
+  YouTube resource keys, and guarded clear/remove/disable operations.
+* Adds opt-in modern Flutter controls while preserving legacy controls as the
+  default.
+* Adds YouTube/Vimeo source resolution and merged playback for compatible
+  separate audio/video streams.
+* Updates Android playback dependencies to Media3 1.10.1.
+
+The entries below are inherited from the upstream
+`video_player_android` history and do not represent releases of this fork.
 
 ## 2.7.3
 

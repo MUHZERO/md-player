@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/// Compatibility entrypoint for the Android video-player implementation.
+library;
+
 export 'src/android_video_player.dart';
 export 'src/md_player_controller.dart';
 export 'src/md_player_controls.dart';

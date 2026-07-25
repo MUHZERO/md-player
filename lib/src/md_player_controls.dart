@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 
+/// Selects the visual controls shown over an `MdPlayer`.
 enum MdPlayerControlsMode { legacy, modern }
 
+/// Colors used by the opt-in modern controls.
+///
+/// A null [accent] resolves from the host theme's [ColorScheme.primary].
 @immutable
 class MdPlayerStyle {
+  /// Creates a modern-control color palette.
   const MdPlayerStyle({
     this.accent,
     this.foreground = Colors.white,
@@ -13,19 +18,35 @@ class MdPlayerStyle {
     this.buffered = const Color(0x99FFFFFF),
   });
 
+  /// Optional primary action and progress color.
   final Color? accent;
+
+  /// Foreground color for icons and labels.
   final Color foreground;
+
+  /// Color drawn behind visible controls.
   final Color scrim;
+
+  /// Keyboard-focus highlight color.
   final Color focus;
+
+  /// Unplayed progress-track color.
   final Color progressBackground;
+
+  /// Buffered progress-track color.
   final Color buffered;
 
+  /// Resolves [accent] against the host theme when it is null.
   Color accentFor(BuildContext context) =>
       accent ?? Theme.of(context).colorScheme.primary;
 }
 
+/// Behavior and feature flags for the opt-in modern controls.
 @immutable
 class MdPlayerControlsConfiguration {
+  /// Creates a modern-controls configuration.
+  ///
+  /// [speedOptions] must contain unique, positive, finite values.
   MdPlayerControlsConfiguration({
     this.animationDuration = const Duration(milliseconds: 180),
     this.hideDelay = const Duration(seconds: 3),
@@ -36,12 +57,25 @@ class MdPlayerControlsConfiguration {
     List<double> speedOptions = const <double>[0.5, 1, 1.25, 1.5, 2],
   }) : speedOptions = _validateSpeeds(speedOptions);
 
+  /// Duration of control fades and scales.
   final Duration animationDuration;
+
+  /// Delay before controls hide while playback is active.
   final Duration hideDelay;
+
+  /// Distance used by keyboard and double-tap seeking.
   final Duration seekInterval;
+
+  /// Whether shortcuts are active while the player owns focus.
   final bool enableKeyboard;
+
+  /// Whether volume controls and shortcuts are available.
   final bool enableVolume;
+
+  /// Whether the modern controls can be locked.
   final bool enableLock;
+
+  /// Ordered playback speeds shown to the user.
   final List<double> speedOptions;
 
   static List<double> _validateSpeeds(List<double> values) {
@@ -58,8 +92,13 @@ class MdPlayerControlsConfiguration {
   }
 }
 
+/// User-visible and semantic text used by the modern controls.
+///
+/// Defaults are English. Supply a localized instance from the host app when
+/// another locale is active.
 @immutable
 class MdPlayerControlsLabels {
+  /// Creates a complete labels set with overridable English defaults.
   const MdPlayerControlsLabels({
     this.play = 'Play',
     this.pause = 'Pause',
@@ -86,33 +125,80 @@ class MdPlayerControlsLabels {
     this.retry = 'Retry',
   });
 
+  /// Play action label.
   final String play;
+
+  /// Pause action label.
   final String pause;
+
+  /// Replay action label.
   final String replay;
+
+  /// Mute action label.
   final String mute;
+
+  /// Unmute action label.
   final String unmute;
+
+  /// Volume action label.
   final String volume;
+
+  /// Forward-seek action label.
   final String seekForward;
+
+  /// Backward-seek action label.
   final String seekBackward;
+
+  /// Progress-control semantic label.
   final String progress;
+
+  /// Settings action label.
   final String settings;
+
+  /// Playback-speed setting label.
   final String speed;
+
+  /// Quality setting label.
   final String quality;
+
+  /// Enter-fullscreen action label.
   final String fullscreen;
+
+  /// Exit-fullscreen action label.
   final String exitFullscreen;
+
+  /// Lock-controls action label.
   final String lock;
+
+  /// Unlock-controls action label.
   final String unlock;
+
+  /// Close action label.
   final String close;
+
+  /// Initial loading message.
   final String loading;
+
+  /// Rebuffering message.
   final String buffering;
+
+  /// Quality-switch progress message.
   final String switchingQuality;
+
+  /// Recoverable quality-switch failure message.
   final String qualityFailed;
+
+  /// Sanitized fatal playback error message.
   final String error;
+
+  /// Retry action label.
   final String retry;
 }
 
+/// Icons used by the opt-in modern controls.
 @immutable
 class MdPlayerControlsIcons {
+  /// Creates an icon set with Material icon defaults.
   const MdPlayerControlsIcons({
     this.play = Icons.play_arrow,
     this.pause = Icons.pause,
@@ -129,26 +215,53 @@ class MdPlayerControlsIcons {
     this.speed = Icons.speed,
   });
 
+  /// Play icon.
   final IconData play;
+
+  /// Pause icon.
   final IconData pause;
+
+  /// Replay icon.
   final IconData replay;
+
+  /// Muted-volume icon.
   final IconData mute;
+
+  /// Audible-volume icon.
   final IconData volume;
+
+  /// Settings icon.
   final IconData settings;
+
+  /// Enter-fullscreen icon.
   final IconData fullscreen;
+
+  /// Exit-fullscreen icon.
   final IconData exitFullscreen;
+
+  /// Lock icon.
   final IconData lock;
+
+  /// Unlock icon.
   final IconData unlock;
+
+  /// Close icon.
   final IconData close;
+
+  /// Quality icon.
   final IconData quality;
+
+  /// Playback-speed icon.
   final IconData speed;
 }
 
+/// Builds the initial-loading UI for an `MdPlayer`.
 typedef MdPlayerLoadingBuilder = Widget Function(
   BuildContext context,
   String semanticsLabel,
 );
 
+/// Builds the fatal-error UI for an `MdPlayer`.
 typedef MdPlayerErrorBuilder = Widget Function(
   BuildContext context,
   String message,

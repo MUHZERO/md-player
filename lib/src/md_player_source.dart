@@ -4,7 +4,12 @@ import 'package:http/http.dart' as http;
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
+/// One selectable stream identity and its playback/cache metadata.
+///
+/// Header maps are treated as immutable after construction and must not be
+/// modified while a controller uses this quality.
 class MdPlayerQuality {
+  /// Creates a selectable quality.
   const MdPlayerQuality({
     required this.label,
     required this.videoUrl,
@@ -23,24 +28,57 @@ class MdPlayerQuality {
     this.audioRole,
   });
 
+  /// User-visible quality label.
   final String label;
+
+  /// Video or muxed stream URL.
   final String videoUrl;
+
+  /// Optional separate audio stream URL.
   final String? audioUrl;
+
+  /// Headers sent for the video stream.
   final Map<String, String> httpHeaders;
+
+  /// Headers sent for [audioUrl], or null to reuse [httpHeaders].
   final Map<String, String>? audioHttpHeaders;
+
+  /// Optional video format hint passed to Media3.
   final VideoFormat? videoFormatHint;
+
+  /// Optional audio format hint passed to Media3.
   final VideoFormat? audioFormatHint;
+
+  /// Stable cache key for the video or muxed resource.
   final String? videoCacheKey;
+
+  /// Stable cache key for the separate audio resource.
   final String? audioCacheKey;
+
+  /// Stable video identity used by targeted cache removal.
   final String? videoStreamIdentity;
+
+  /// Stable audio identity used by targeted cache removal.
   final String? audioStreamIdentity;
+
+  /// Provider-specific video stream tag.
   final int? videoItag;
+
+  /// Provider-specific audio stream tag.
   final int? audioItag;
+
+  /// Cache role such as `video` or `muxed`.
   final String? videoRole;
+
+  /// Cache role for a separate audio stream.
   final String? audioRole;
 }
 
+/// Resolved initial source and its selectable qualities.
+///
+/// Collection values are treated as immutable after construction.
 class MdPlayerSource {
+  /// Creates a resolved playback source.
   const MdPlayerSource({
     required this.videoUrl,
     this.audioUrl,
@@ -60,37 +98,78 @@ class MdPlayerSource {
     this.audioFormatHint,
   });
 
+  /// Initial video or muxed stream URL.
   final String videoUrl;
+
+  /// Optional initial separate audio stream URL.
   final String? audioUrl;
+
+  /// Optional video format hint.
   final VideoFormat? formatHint;
+
+  /// Headers sent for [videoUrl].
   final Map<String, String> httpHeaders;
+
+  /// Headers sent for [audioUrl], or null to reuse [httpHeaders].
   final Map<String, String>? audioHttpHeaders;
+
+  /// Label associated with the initial stream.
   final String qualityLabel;
+
+  /// Qualities available for explicit switching.
   final List<MdPlayerQuality> qualities;
+
+  /// Stable initial video or muxed cache key.
   final String? videoCacheKey;
+
+  /// Stable initial audio cache key.
   final String? audioCacheKey;
+
+  /// Stable initial video identity.
   final String? videoStreamIdentity;
+
+  /// Stable initial audio identity.
   final String? audioStreamIdentity;
+
+  /// Provider-specific initial video tag.
   final int? videoItag;
+
+  /// Provider-specific initial audio tag.
   final int? audioItag;
+
+  /// Cache role for the initial video or muxed stream.
   final String? videoRole;
+
+  /// Cache role for the initial audio stream.
   final String? audioRole;
+
+  /// Optional separate-audio format hint.
   final VideoFormat? audioFormatHint;
 }
 
+/// Builds a stable cache key for one resolved YouTube resource.
 String mdPlayerYoutubeCacheKey(String videoId, String role, int itag) {
   final String encoded =
       base64Url.encode(utf8.encode(videoId)).replaceAll('=', '');
   return 'md-player:youtube:$encoded:$role:$itag';
 }
 
+/// Resolves direct, YouTube, and Vimeo URLs into Media3 playback sources.
+///
+/// YouTube stream URLs can expire and provider restrictions may prevent
+/// resolution. Call [close] when a resolver is owned outside a controller.
 class MdPlayerSourceResolver {
+  /// Creates a resolver.
+  ///
+  /// When [httpClient] is supplied, ownership is transferred and [close]
+  /// closes it.
   MdPlayerSourceResolver({http.Client? httpClient})
       : _httpClient = httpClient ?? http.Client();
 
   final http.Client _httpClient;
   final Map<String, MdPlayerSource> _cache = <String, MdPlayerSource>{};
 
+  /// Resolves [input], caching the result for this resolver's lifetime.
   Future<MdPlayerSource> resolve(String input) async {
     final String url = input.trim();
     if (url.isEmpty) {
@@ -280,6 +359,7 @@ class MdPlayerSourceResolver {
     return null;
   }
 
+  /// Closes the resolver's HTTP client.
   void close() {
     _httpClient.close();
   }

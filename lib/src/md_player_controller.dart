@@ -10,10 +10,13 @@ import 'md_player_source.dart';
 
 const Object _errorDescriptionNotProvided = Object();
 
+/// Controller projection of an Android quality-switch operation.
 enum MdQualitySwitchStatus { idle, preparing, switching, completed, failed }
 
+/// Immutable state for the latest quality-switch operation.
 @immutable
 class MdQualitySwitchState {
+  /// Creates a quality-switch state.
   const MdQualitySwitchState({
     this.status = MdQualitySwitchStatus.idle,
     this.operationId,
@@ -22,19 +25,33 @@ class MdQualitySwitchState {
     this.rollbackSucceeded,
   });
 
+  /// Current operation phase.
   final MdQualitySwitchStatus status;
+
+  /// Unique operation identifier, when a switch is active or terminal.
   final String? operationId;
+
+  /// User-visible label requested by the operation.
   final String? requestedLabel;
+
+  /// Sanitized native failure description.
   final String? errorDescription;
+
+  /// Whether native rollback restored the prior source.
   final bool? rollbackSucceeded;
 
+  /// Whether native preparation or replacement is in progress.
   bool get isSwitching =>
       status == MdQualitySwitchStatus.preparing ||
       status == MdQualitySwitchStatus.switching;
 }
 
+/// Immutable playback state published by [MdPlayerController].
+///
+/// [buffered] and [qualities] are treated as immutable.
 @immutable
 class MdPlayerValue {
+  /// Creates a playback value.
   const MdPlayerValue({
     required this.duration,
     this.size = Size.zero,
@@ -51,28 +68,57 @@ class MdPlayerValue {
     this.errorDescription,
   });
 
+  /// Creates a value before source initialization.
   const MdPlayerValue.uninitialized()
       : this(duration: Duration.zero, isResolving: false);
 
+  /// Creates an uninitialized fatal-error value.
   const MdPlayerValue.erroneous(String errorDescription)
       : this(duration: Duration.zero, errorDescription: errorDescription);
 
+  /// Total known duration, or [Duration.zero] before initialization.
   final Duration duration;
+
+  /// Latest confirmed or polled playback position.
   final Duration position;
+
+  /// Buffered timeline ranges.
   final List<DurationRange> buffered;
+
+  /// Whether the native player reported initialization.
   final bool isInitialized;
+
+  /// Authoritative requested/native playback state.
   final bool isPlaying;
+
+  /// Whether playback is currently rebuffering.
   final bool isBuffering;
+
+  /// Whether Dart source resolution is in progress.
   final bool isResolving;
+
+  /// Requested playback-speed multiplier.
   final double playbackSpeed;
+
+  /// Requested volume in the range 0.0–1.0.
   final double volume;
+
+  /// Label of the initial or last successfully confirmed quality.
   final String qualityLabel;
+
+  /// Explicit qualities exposed by the resolved source.
   final List<MdPlayerQuality> qualities;
+
+  /// Fatal initialization or command error description.
   final String? errorDescription;
+
+  /// Native video dimensions.
   final Size size;
 
+  /// Whether [errorDescription] is present.
   bool get hasError => errorDescription != null;
 
+  /// Display aspect ratio, defaulting to 16:9 until valid dimensions exist.
   double get aspectRatio {
     if (!isInitialized || size.width == 0 || size.height == 0) {
       return 16 / 9;
@@ -81,6 +127,7 @@ class MdPlayerValue {
     return value <= 0 ? 16 / 9 : value;
   }
 
+  /// Copies this value with selected fields replaced.
   MdPlayerValue copyWith({
     Duration? duration,
     Duration? position,
@@ -117,7 +164,12 @@ class MdPlayerValue {
   }
 }
 
+/// Race-safe owner of one resolved Android Media3 player.
+///
+/// Call [initialize] before playback and await [dispose] when cleanup ordering
+/// matters. The controller owns its default source resolver.
 class MdPlayerController extends ValueNotifier<MdPlayerValue> {
+  /// Creates a network controller for a direct, YouTube, or Vimeo URL.
   MdPlayerController.network(
     this.url, {
     this.autoPlay = false,
@@ -128,9 +180,13 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
         _platform = platform ?? VideoPlayerPlatform.instance,
         super(const MdPlayerValue.uninitialized());
 
+  /// Texture sentinel used before initialization and after release.
   static const int kUninitializedTextureId = -1;
 
+  /// Input URL passed to the source resolver.
   final String url;
+
+  /// Whether successful initialization starts playback.
   final bool autoPlay;
   final MdPlayerSourceResolver _resolver;
   final bool _ownsResolver;
@@ -161,12 +217,15 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
   double _lastNonzeroVolume = 1.0;
   String? _activeQualityOperationId;
 
+  /// Quality operation state, including terminal native confirmation/rollback.
   ValueListenable<MdQualitySwitchState> get qualitySwitchState =>
       _qualitySwitchState;
 
+  /// Current texture identifier, exposed for tests.
   @visibleForTesting
   int get textureId => _textureId;
 
+  /// Current Flutter texture/native player identifier.
   int get playerId => _textureId;
 
   /// The exact quality last confirmed by the native player.
@@ -175,6 +234,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
   /// source exposes duplicate labels and is unchanged by failed switches.
   MdPlayerQuality? get confirmedQuality => _confirmedQuality;
 
+  /// Resolves [url], replaces any prior player, and waits for initialization.
   Future<void> initialize() async {
     if (_isDisposed) {
       return;
@@ -430,6 +490,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
   }
 
+  /// Starts or resumes playback.
   Future<void> play() async {
     if (!_hasActivePlayer) {
       return;
@@ -467,6 +528,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
   }
 
+  /// Pauses playback.
   Future<void> pause() async {
     if (!_hasActivePlayer) {
       return;
@@ -488,6 +550,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
   }
 
+  /// Seeks to [position], clamped to the known duration.
   Future<void> seekTo(Duration position) async {
     if (!_hasActivePlayer) {
       return;
@@ -516,6 +579,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
   }
 
+  /// Sets playback speed for the current player.
   Future<void> setPlaybackSpeed(double speed) async {
     if (!_hasActivePlayer) {
       return;
@@ -539,6 +603,9 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
   }
 
+  /// Sets volume, clamped to the range 0.0–1.0.
+  ///
+  /// Rapid calls use last-command-wins authority.
   Future<void> setVolume(double volume) async {
     if (!_hasActivePlayer) {
       return;
@@ -563,6 +630,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
   }
 
+  /// Toggles mute, restoring the last positive volume when unmuting.
   Future<void> toggleMute() =>
       setVolume(value.volume == 0 ? _lastNonzeroVolume : 0);
 
@@ -626,6 +694,10 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
   }
 
+  /// Releases listeners and the native player.
+  ///
+  /// Repeated calls return the same cleanup future. Await it when subsequent
+  /// work depends on native disposal having completed.
   @override
   // super.dispose() runs once in _finishDispose, after asynchronous cleanup.
   // ignore: must_call_super

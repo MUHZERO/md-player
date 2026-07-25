@@ -10,7 +10,12 @@ import 'md_player_controls.dart';
 import 'md_player_debug.dart';
 import 'md_player_source.dart';
 
+/// Renders a stable Android video texture with legacy or modern Flutter controls.
+///
+/// Modern controls are opt-in. Fullscreen callbacks report intent to the host;
+/// this widget never changes routes, orientation, system UI, or activity state.
 class MdPlayer extends StatefulWidget {
+  /// Creates a player widget.
   const MdPlayer({
     super.key,
     required this.controller,
@@ -32,22 +37,56 @@ class MdPlayer extends StatefulWidget {
     this.errorBuilder,
   });
 
+  /// Playback controller that owns the texture and native player.
   final MdPlayerController controller;
+
+  /// Compatibility fullscreen callback used when the state-specific callback
+  /// for the requested transition is absent.
   final VoidCallback? onFullscreenPressed;
+
+  /// Controls implementation; defaults to [MdPlayerControlsMode.legacy].
   final MdPlayerControlsMode controlsMode;
+
+  /// Optional modern-control behavior configuration.
   final MdPlayerControlsConfiguration? controlsConfiguration;
+
+  /// Modern-control labels and semantic text.
   final MdPlayerControlsLabels labels;
+
+  /// Modern-control icons.
   final MdPlayerControlsIcons icons;
+
+  /// Modern-control colors.
   final MdPlayerStyle style;
+
+  /// Optional modern-control title.
   final String? title;
+
+  /// Optional modern-control subtitle.
   final String? subtitle;
+
+  /// Optional close action shown by modern controls.
   final VoidCallback? onClose;
+
+  /// Additional host-owned actions shown in the modern top bar.
   final List<Widget> topActions;
+
+  /// Host-owned fullscreen state used to select enter/exit behavior.
   final bool isFullscreen;
+
+  /// Requests that the host enter fullscreen.
   final VoidCallback? onEnterFullscreen;
+
+  /// Requests that the host exit fullscreen.
   final VoidCallback? onExitFullscreen;
+
+  /// Optional retry operation for fatal playback errors.
   final FutureOr<void> Function()? onRetry;
+
+  /// Optional replacement for the initial modern loading indicator.
   final MdPlayerLoadingBuilder? loadingBuilder;
+
+  /// Optional replacement for the fatal modern error overlay.
   final MdPlayerErrorBuilder? errorBuilder;
 
   @override

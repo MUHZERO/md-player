@@ -1,82 +1,272 @@
-# MD Player
+# md_player_android
 
-Android video player fork for Flutter with optional synced separate video and
-audio stream playback.
+[![Validate](https://github.com/MUHZERO/md-player/actions/workflows/validate.yml/badge.svg)](https://github.com/MUHZERO/md-player/actions/workflows/validate.yml)
+[![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
-This package is based on Flutter's `video_player_android` implementation and
-keeps normal `video_player` platform behavior working. The fork adds a direct
-Android API for apps that already resolve separate media URLs, such as a
-video-only stream plus an audio-only stream.
+An Android-only Flutter video player built on AndroidX Media3. It supports
+direct network media, separate audio and video streams, explicit quality
+switching on the same native player, optional bounded caching, and opt-in
+modern Flutter controls.
+
+The package is derived from Flutter's `video_player_android` implementation and
+continues to implement `video_player_platform_interface`.
+
+> **Release status:** validated for public review. The first public package
+> version and Git tag have not yet been selected.
+
+## Platform support
+
+| Platform | Support |
+| --- | --- |
+| Android API 23+ | Supported |
+| iOS, macOS, web, Windows, Linux | Not implemented |
+
+The Android plugin compiles with SDK 36, uses Java 17, and currently depends on
+AndroidX Media3 1.10.1.
 
 ## Features
 
-- Android implementation for Flutter `video_player`
-- Optional synced video/audio playback with ExoPlayer `MergingMediaSource`
-- Video quality switching while keeping the existing audio stream
-- Example app that resolves YouTube streams outside the native plugin
-- Pigeon-generated platform messages kept from source
-- Opt-in bounded Media3 byte caching on Android
+- Media3 playback for progressive, HLS, DASH, SmoothStreaming, and RTSP sources
+- Optional merged playback of separate video-only and audio-only streams
+- Race-safe controller initialization, commands, and asynchronous disposal
+- Same-player manual quality switching with first-frame confirmation and rollback
+- Bounded process-level Media3 cache, disabled by default
+- Legacy controls by default and opt-in modern Flutter controls
+- Host-owned fullscreen callbacks, keyboard shortcuts, volume, speed, and seeking
+- YouTube and Vimeo URL resolution in the Dart layer
 
-## Usage
+Automatic quality selection, captions, DRM integration, picture-in-picture,
+downloads, thumbnail previews, and package-owned fullscreen/orientation policy
+are not implemented.
 
-For normal `video_player` playback, use the platform interface as usual.
+## Installation
 
-For separate video/audio URLs:
+After the first pub.dev release, add the selected package version:
+
+```yaml
+dependencies:
+  md_player_android: ^x.y.z
+```
+
+Until then, use a reviewed commit:
+
+```yaml
+dependencies:
+  md_player_android:
+    git:
+      url: https://github.com/MUHZERO/md-player.git
+      ref: COMMIT_SHA
+```
+
+Network playback also requires the normal Android internet permission:
+
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+```
+
+## Basic player
+
+Create and initialize the controller once, then await its asynchronous
+disposal:
 
 ```dart
-import 'package:md_player_android/md_player_android.dart';
+late final MdPlayerController controller;
+late final Future<void> initialization;
 
-final int? textureId = await MdPlayerAndroid().createWithAudio(
-  videoUri: videoOnlyUrl,
-  audioUri: audioOnlyUrl,
+@override
+void initState() {
+  super.initState();
+  controller = MdPlayerController.network(
+    'https://example.com/video.mp4',
+    autoPlay: true,
+  );
+  initialization = controller.initialize();
+}
+
+@override
+void dispose() {
+  controller.dispose();
+  super.dispose();
+}
+
+@override
+Widget build(BuildContext context) {
+  return FutureBuilder<void>(
+    future: initialization,
+    builder: (context, snapshot) {
+      if (snapshot.hasError) {
+        return const Text('Video could not be loaded');
+      }
+      return MdPlayer(controller: controller);
+    },
+  );
+}
+```
+
+For code that owns shutdown sequencing, use `await controller.dispose()`.
+Calling `dispose()` more than once returns the same cleanup future.
+
+## YouTube sources
+
+`MdPlayerController.network` uses `MdPlayerSourceResolver`, which can resolve
+YouTube watch/share URLs, Vimeo URLs, and direct media URLs:
+
+```dart
+final controller = MdPlayerController.network(
+  'https://www.youtube.com/watch?v=VIDEO_ID',
 );
+await controller.initialize();
 ```
 
-To switch video quality for the same texture:
+High-quality YouTube formats commonly use separate video-only and audio-only
+streams. The controller passes both to one Media3 player through a
+`MergingMediaSource`.
+
+YouTube stream URLs can expire, and availability depends on regional,
+age/account, format, and other video restrictions. Applications are
+responsible for ensuring their use of YouTube content and stream extraction
+complies with applicable terms and permissions.
+
+## Manual quality selection
+
+Available streams are exposed through `controller.value.qualities`:
 
 ```dart
-await MdPlayerAndroid().changeQuality(textureId, newVideoOnlyUrl);
+final quality = controller.value.qualities.first;
+await controller.setQuality(quality);
 ```
 
-To enable the process-wide byte cache before creating players:
+The `setQuality()` future completes when Android accepts the request; it does
+not mean the replacement's first frame has rendered. Observe
+`controller.qualitySwitchState` for terminal success or failure and
+`controller.confirmedQuality` for the exact stream last confirmed by the
+native player. Failed switches roll back without replacing the controller,
+texture, or native player.
+
+Automatic/adaptive quality selection is not provided.
+
+## Modern controls
+
+Legacy controls remain the default. Modern controls are opt-in:
+
+```dart
+MdPlayer(
+  controller: controller,
+  controlsMode: MdPlayerControlsMode.modern,
+  controlsConfiguration: MdPlayerControlsConfiguration(
+    enableVolume: true,
+  ),
+)
+```
+
+Modern controls add responsive progress, speed and quality settings,
+double-tap seeking, optional volume controls, keyboard actions, accessibility
+labels, and controls locking. They do not replace the Media3 player or own
+playback authority.
+
+## Host-owned fullscreen
+
+The package reports fullscreen intent but never changes routes, orientation,
+system UI, or activity state:
+
+```dart
+MdPlayer(
+  controller: controller,
+  controlsMode: MdPlayerControlsMode.modern,
+  isFullscreen: isFullscreen,
+  onEnterFullscreen: enterFullscreen,
+  onExitFullscreen: exitFullscreen,
+  onFullscreenPressed: toggleFullscreen,
+)
+```
+
+The host must update `isFullscreen` and restore any orientation or system-UI
+policy it changes. `onFullscreenPressed` is the compatibility fallback when a
+state-specific callback is absent.
+
+## Optional Media3 cache
+
+Caching is disabled by default. Configure it once, before creating players:
 
 ```dart
 await MdPlayerCache.configure(
-  MdPlayerCacheConfiguration(maxBytes: 256 * 1024 * 1024),
+  MdPlayerCacheConfiguration(
+    maxBytes: 256 * 1024 * 1024,
+    directoryName: 'media_cache',
+  ),
 );
-
-final MdPlayerCacheStats stats = await MdPlayerCache.stats();
-await MdPlayerCache.removeVideo(youtubeVideoId);
-await MdPlayerCache.disable(); // Keeps cached bytes on disk.
 ```
 
-Caching is disabled by default and only applies to HTTP(S) media. It is an LRU
-playback cache, not a download, prefetch, or offline API. Per-video removal is
-available for progressive YouTube streams resolved by `MdPlayerSourceResolver`;
-direct URLs keep Media3's URI cache key.
+The cache is process-level and stored in the application's private cache
+directory. Active cache-backed players hold generation leases. Configuration,
+disable, clear, and targeted removal can be rejected while an affected
+generation is leased; dispose the relevant controllers and retry.
 
-## YouTube
+```dart
+final stats = await MdPlayerCache.stats();
+await MdPlayerCache.removeVideo(youtubeVideoId);
+await MdPlayerCache.clear();
+await MdPlayerCache.disable();
+```
 
-YouTube extraction is intentionally handled outside the Android plugin. Resolve
-streams in Dart or your app layer, then pass the final video-only and audio-only
-URLs to `MdPlayerAndroid`.
+Cache keys for resolved YouTube streams are stable across signed-query refreshes
+and keep audio/video resources distinct. A partial cache entry does not
+guarantee offline playback; every required byte and every required stream must
+already be cached.
+
+## Limitations
+
+- Android is the only implemented native platform.
+- DRM playback is not configured or validated.
+- Live-stream behavior is not part of the validated feature set.
+- YouTube and Vimeo extraction can break when provider responses change.
+- Separate-stream playback requires compatible audio/video timelines.
+- Quality changes are deliberate manual replacements, not gapless switching.
+- The package does not manage fullscreen routes, orientation, or system UI.
+
+## Troubleshooting
+
+- Initialization failures: verify the URL, Android internet permission, codec,
+  container, and provider restrictions.
+- Cleartext HTTP failures: use HTTPS in production. The example permits
+  loopback cleartext traffic only in its debug manifest for deterministic tests.
+- Cache mutation failures: dispose cache-backed controllers before clearing,
+  disabling, or replacing the active cache generation.
+- Quality failures: inspect `qualitySwitchState`; a successful rollback keeps
+  the previous `confirmedQuality`.
+
+## Example
+
+The `example/` application demonstrates legacy and modern controls, explicit
+cache setup, host-owned fullscreen/orientation restoration, custom labels and
+colors, and URL error handling. Paste a media URL you are authorized to play.
+Committed synthetic fixtures are used only by integration tests.
 
 ## Development
 
 ```bash
-flutter pub get
-dart run pigeon --input pigeons/messages.dart
+dart format --output=none --set-exit-if-changed .
 flutter analyze
 flutter test
+
+cd example/android
+GRADLE_USER_HOME="$PWD/../../.gradle-user-home" \
+  sh gradlew :md_player_android:testDebugUnitTest
 ```
 
-Android unit tests can be run through the example Gradle wrapper:
+Regenerate Pigeon bindings with Pigeon 27.1.1:
 
 ```bash
-cd example/android
-sh gradlew :md_player_android:testDebugUnitTest
+dart run pigeon --input pigeons/messages.dart
+dart format lib/src/messages.g.dart test/test_api.g.dart
+perl -pi -e 's/[ \t]+$//' \
+  android/src/main/java/io/flutter/plugins/videoplayer/Messages.java
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for all checks.
 
 ## License
 
-BSD-style license. See [LICENSE](LICENSE).
+BSD 3-Clause. See [LICENSE](LICENSE). This repository contains code derived
+from Flutter's Android video player implementation; existing attribution and
+copyright headers are preserved.

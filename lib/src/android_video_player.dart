@@ -14,8 +14,10 @@ import 'md_player_cache.dart';
 /// Native quality-switch progress reported on the player's event channel.
 enum MdQualitySwitchPhase { preparing, switching, completed, failed }
 
+/// Native event for one operation-correlated quality switch.
 @immutable
 class MdQualitySwitchEvent {
+  /// Creates a native quality-switch event.
   const MdQualitySwitchEvent({
     required this.operationId,
     required this.phase,
@@ -24,12 +26,22 @@ class MdQualitySwitchEvent {
     this.rollbackSucceeded,
   });
 
+  /// Unique operation identifier.
   final String operationId;
+
+  /// Native operation phase.
   final MdQualitySwitchPhase phase;
+
+  /// Requested user-visible label.
   final String? requestedLabel;
+
+  /// Sanitized native failure description.
   final String? errorDescription;
+
+  /// Whether rollback restored the previous source.
   final bool? rollbackSucceeded;
 
+  /// Whether this event ends the operation.
   bool get isTerminal =>
       phase == MdQualitySwitchPhase.completed ||
       phase == MdQualitySwitchPhase.failed;
@@ -38,15 +50,21 @@ class MdQualitySwitchEvent {
 /// One typed projection of the shared per-texture native event stream.
 @immutable
 class MdPlayerPlatformEvent {
+  /// Wraps a standard video event.
   const MdPlayerPlatformEvent.video(this.videoEvent) : qualityEvent = null;
+
+  /// Wraps a quality-switch event.
   const MdPlayerPlatformEvent.quality(this.qualityEvent) : videoEvent = null;
 
+  /// Standard platform-interface video event, when present.
   final VideoEvent? videoEvent;
+
+  /// Native quality-switch event, when present.
   final MdQualitySwitchEvent? qualityEvent;
 }
 
 /// An Android implementation of [VideoPlayerPlatform] that uses the
-/// Pigeon-generated [VideoPlayerApi].
+/// Pigeon-generated `AndroidVideoPlayerApi`.
 class MdPlayerAndroid extends VideoPlayerPlatform {
   final AndroidVideoPlayerApi _api = AndroidVideoPlayerApi();
   final Map<int, Stream<Map<dynamic, dynamic>>> _rawEventStreams =
@@ -132,6 +150,7 @@ class MdPlayerAndroid extends VideoPlayerPlatform {
     return response.textureId;
   }
 
+  /// Creates a resolved source with optional cache identity and separate audio.
   Future<int?> createMdSource({
     required String videoUri,
     String? audioUri,
@@ -277,12 +296,14 @@ class MdPlayerAndroid extends VideoPlayerPlatform {
         .map((MdPlayerPlatformEvent event) => event.videoEvent!);
   }
 
+  /// Returns quality-switch events for [textureId].
   Stream<MdQualitySwitchEvent> qualityEventsFor(int textureId) {
     return playerEventsFor(textureId)
         .where((MdPlayerPlatformEvent event) => event.qualityEvent != null)
         .map((MdPlayerPlatformEvent event) => event.qualityEvent!);
   }
 
+  /// Returns the typed standard and quality events for [textureId].
   Stream<MdPlayerPlatformEvent> playerEventsFor(int textureId) {
     return _rawEventsFor(textureId).map((Map<dynamic, dynamic> map) {
       if (map['event'] == 'qualitySwitch') {
@@ -379,4 +400,5 @@ class MdPlayerAndroid extends VideoPlayerPlatform {
   }
 }
 
+/// Backward-compatible alias for [MdPlayerAndroid].
 typedef AndroidVideoPlayer = MdPlayerAndroid;
