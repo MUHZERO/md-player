@@ -1,0 +1,45 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: 3.44.5
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: |
+          flutter pub get
+          flutter pub get --directory example
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed .
+      - name: Analyze
+        run: |
+          flutter analyze
+          flutter analyze example
+      - name: Test Flutter
+        run: flutter test
+      - name: Verify Pigeon outputs
+        run: |
+          dart run pigeon --input pigeons/messages.dart
+          dart format lib/src/messages.g.dart test/test_api.g.dart
+          perl -pi -e 's/[ \t]+$//' \
+            android/src/main/java/io/flutter/plugins/videoplayer/Messages.java
+          git diff --exit-code
+      - name: Test Android
+        working-directory: example/android
+        run: ./gradlew :md_player_android:testDebugUnitTest
+      - name: Validate package
+        run: dart pub publish --dry-run
