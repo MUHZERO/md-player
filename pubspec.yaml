@@ -1,7 +1,7 @@
 name: md_player_android
-description: Android video player fork with optional synced audio/video stream playback.
-repository: https://github.com/muhdroid/md_player_android
-issue_tracker: https://github.com/flutter/flutter/issues?q=is%3Aissue+is%3Aopen+label%3A%22p%3A+video_player%22
+description: Android Flutter video player with Media3 playback, manual quality switching, optional caching, and opt-in modern controls.
+repository: https://github.com/MUHZERO/md-player
+issue_tracker: https://github.com/MUHZERO/md-player/issues
 version: 2.7.3
 
 environment:
@@ -21,14 +21,17 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.6.0
+  meta: ^1.12.0
   video_player_platform_interface: ">=6.1.0 <7.0.0"
   youtube_explode_dart: ^3.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  pigeon: ^27.1.1
+  pigeon: 27.1.1
 
 topics:
   - video
   - video-player
+  - media3
+  - youtube

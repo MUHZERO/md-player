@@ -188,7 +188,7 @@ public class Messages {
     /** The error details. Must be a datatype supported by the api codec. */
     public final Object details;
 
-    public FlutterError(@NonNull String code, @Nullable String message, @Nullable Object details) 
+    public FlutterError(@NonNull String code, @Nullable String message, @Nullable Object details)
     {
       super(message);
       this.code = code;
@@ -2018,7 +2018,8 @@ public class Messages {
 
     void disableCache();
 
-    @NonNull CacheStatsMessage cacheStats();
+    @NonNull
+    CacheStatsMessage cacheStats();
 
     void clearCache();
 
