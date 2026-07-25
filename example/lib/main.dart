@@ -5,7 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:md_player_android/md_player_android.dart';
 
-import 'muh_pl.dart';
+import 'player_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,5 +13,5 @@ Future<void> main() async {
     maxBytes: 256 * 1024 * 1024,
     directoryName: 'md_player_example_cache',
   ));
-  runApp(const MaterialApp(home: MuhPl()));
+  runApp(const MaterialApp(home: PlayerPage()));
 }

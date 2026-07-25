@@ -23,9 +23,11 @@ done
 (cd "$fixtures" && shasum -a 256 -c SHA256SUMS) >/dev/null
 
 devices_file=$(mktemp)
+trap 'rm -f "$devices_file"' EXIT INT TERM
 flutter devices --machine > "$devices_file"
 kind=$(dart "$root/tool/phase_3_device.dart" "$device" < "$devices_file")
 rm -f "$devices_file"
+trap - EXIT INT TERM
 
 run_id=$(date -u +%Y%m%dT%H%M%SZ)_$$
 reports="$root/build/phase_3_cache/$run_id"

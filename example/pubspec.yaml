@@ -1,10 +1,10 @@
-name: video_player_example
-description: Demonstrates how to use the video_player plugin.
+name: md_player_android_example
+description: Demonstrates legacy and modern md_player_android controls.
 publish_to: none
 
 environment:
-  sdk: ^3.4.0
-  flutter: ">=3.22.0"
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
 
 dependencies:
   flutter:
@@ -28,5 +28,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    # Private integration fixtures; the public example does not reference them.
+    # Test-only generated fixtures; the public example does not reference them.
     - assets/phase_2_1/

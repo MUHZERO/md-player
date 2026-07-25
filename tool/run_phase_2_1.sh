@@ -27,17 +27,34 @@ for file in audio.m4a low.mp4 high.mp4 muxed.mp4 invalid.mp4 SHA256SUMS FFMPEG_V
     exit 2
   }
 done
+(cd "$fixtures" && shasum -a 256 -c SHA256SUMS) >/dev/null
 
-reports="$root/build/phase_2_1"
+devices_file=$(mktemp)
+trap 'rm -f "$devices_file"' EXIT INT TERM
+flutter devices --machine > "$devices_file"
+dart "$root/tool/phase_3_device.dart" "$device" < "$devices_file" >/dev/null
+rm -f "$devices_file"
+trap - EXIT INT TERM
+
+run_id=$(date -u +%Y%m%dT%H%M%SZ)_$$
+reports="$root/build/phase_2_1/$run_id"
 mkdir -p "$reports"
 i=1
 while [ "$i" -le "$repetitions" ]; do
   log="$reports/run_$i.log"
-  (cd "$root/example" && flutter drive \
-    --driver=test_driver/integration_test.dart \
-    --target=integration_test/phase_2_1_test.dart \
-    --device-id="$device" \
-    --dart-define=PHASE_2_1_FIXTURES=true) 2>&1 | tee "$log"
+  if (cd "$root/example" && perl -e '$SIG{ALRM}=sub{exit 124}; alarm shift; exec @ARGV' 600 \
+    flutter drive \
+      --driver=test_driver/integration_test.dart \
+      --target=integration_test/phase_2_1_test.dart \
+      --device-id="$device" \
+      --dart-define=PHASE_2_1_FIXTURES=true) > "$log" 2>&1; then
+    cat "$log"
+  else
+    status=$?
+    cat "$log"
+    echo "Run $i failed or timed out (status $status)" >&2
+    exit 1
+  fi
   payload=$(sed -n 's/^PHASE_2_1_REPORT=//p' "$log" | tail -1)
   [ -n "$payload" ] || { echo "Run $i produced no JSON report" >&2; exit 1; }
   printf '%s\n' "$payload" > "$reports/run_$i.json"

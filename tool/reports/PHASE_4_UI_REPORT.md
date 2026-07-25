@@ -96,7 +96,7 @@ widget removal, cache statistics, and stable texture/player identity.
 ### Environment and cache
 
 - macOS 26.5.1; Flutter 3.44.5 stable; Dart 3.12.2
-- Android SDK: `/Users/muhdroid/Library/Android/sdk`, SDK 36.1/build-tools 36.1
+- Android SDK: user-local installation, SDK 36.1/build-tools 36.1
 - Java: Android Studio JBR 21.0.10
 - Device: `Resizable_Experimental`, `sdk_gphone16k_arm64`, Android 17/API 37,
   16 KiB preview image

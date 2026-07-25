@@ -2,19 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:md_player_android/md_player_android.dart';
 
-class MuhPl extends StatefulWidget {
-  const MuhPl({super.key});
+class PlayerPage extends StatefulWidget {
+  const PlayerPage({super.key});
 
   @override
-  State<MuhPl> createState() => _MuhPlState();
+  State<PlayerPage> createState() => _PlayerPageState();
 }
 
-class _MuhPlState extends State<MuhPl> {
+class _PlayerPageState extends State<PlayerPage> {
   static const List<DeviceOrientation> _normalOrientations =
       <DeviceOrientation>[DeviceOrientation.portraitUp];
-  final TextEditingController _urlController = TextEditingController(
-    text: 'https://www.youtube.com/watch?v=qy6b7p92YAI',
-  );
+  final TextEditingController _urlController = TextEditingController();
   MdPlayerController? _controller;
   bool _fullscreen = false;
   bool _modern = false;
@@ -93,6 +91,7 @@ class _MuhPlState extends State<MuhPl> {
             controller: _urlController,
             decoration: const InputDecoration(
               labelText: 'YouTube, Vimeo, or direct video URL',
+              hintText: 'Paste a URL you are authorized to play',
               border: OutlineInputBorder(),
             ),
             keyboardType: TextInputType.url,
