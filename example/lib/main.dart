@@ -3,15 +3,24 @@
 // found in the LICENSE file.
 
 import 'package:flutter/material.dart';
-import 'package:md_player_android/md_player_android.dart';
 
 import 'player_page.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await MdPlayerCache.configure(MdPlayerCacheConfiguration(
-    maxBytes: 256 * 1024 * 1024,
-    directoryName: 'md_player_example_cache',
-  ));
-  runApp(const MaterialApp(home: PlayerPage()));
+void main() => runApp(const MdPlayerExampleApp());
+
+class MdPlayerExampleApp extends StatelessWidget {
+  const MdPlayerExampleApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'MD Player Example',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
+      ),
+      home: const PlayerPage(),
+    );
+  }
 }
