@@ -1,7 +1,30 @@
+<div align="center">
+
 # md_player_android
 
+**An Android Flutter video player on AndroidX Media3: separate audio and video streams, manual quality switching, bounded caching and modern controls.**
+For Flutter apps that stream lessons or long videos on Android and need more control than the stock `video_player`.
+
+<br>
+
+<img src="https://cdn.simpleicons.org/flutter/02569B" alt="Flutter" title="Flutter" height="36">&nbsp;&nbsp;&nbsp;
+<img src="https://cdn.simpleicons.org/dart/0175C2" alt="Dart" title="Dart" height="36">&nbsp;&nbsp;&nbsp;
+<img src="https://cdn.simpleicons.org/android/34A853" alt="Android" title="Android" height="36">&nbsp;&nbsp;&nbsp;
+<img src="https://cdn.simpleicons.org/openjdk/437291" alt="Java" title="Java" height="36">&nbsp;&nbsp;&nbsp;
+<img src="https://cdn.simpleicons.org/githubactions/2088FF" alt="GitHub Actions" title="GitHub Actions" height="36">
+
+<br><br>
+
 [![Validate](https://github.com/MUHZERO/md-player/actions/workflows/validate.yml/badge.svg)](https://github.com/MUHZERO/md-player/actions/workflows/validate.yml)
+![Flutter](https://img.shields.io/badge/Flutter-%E2%89%A53.24-02569B?logo=flutter&logoColor=white)
+![Media3](https://img.shields.io/badge/Media3-1.10.1-34A853?logo=android&logoColor=white)
+![Android](https://img.shields.io/badge/Android-API%2023%2B-34A853)
+![Tests](https://img.shields.io/badge/Dart%20tests-67-2EA44F)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+
+</div>
+
+---
 
 An Android-only Flutter video player built on AndroidX Media3. It supports
 direct network media, separate audio and video streams, explicit quality
@@ -265,8 +288,24 @@ perl -pi -e 's/[ \t]+$//' \
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for all checks.
 
-## License
+## Architecture
+
+```text
+lib/                 Dart controller, widgets, source resolver, cache API
+android/             Java plugin on Media3 (player, quality switching, cache)
+pigeons/messages.dart  typed Dart ↔ Java channel definitions
+example/             showcase app and integration tests
+test/                Dart unit and widget tests
+```
+
+---
+
+<div align="center">
+
+Designed and built by [MuhDroid](https://muhdroid.com).
 
 BSD 3-Clause. See [LICENSE](LICENSE). This repository contains code derived
 from Flutter's Android video player implementation; existing attribution and
 copyright headers are preserved.
+
+</div>
