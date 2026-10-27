@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:meta/meta.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
@@ -194,98 +195,166 @@ class MdPlayerSourceResolver {
   }
 
   Future<MdPlayerSource> _resolveYoutube(String url) async {
+    final VideoId videoId = VideoId(url);
     final YoutubeExplode yt = YoutubeExplode();
     try {
-      final String videoId = VideoId(url).value;
-      final StreamManifest manifest =
-          await yt.videos.streamsClient.getManifest(VideoId(url));
-
-      if (manifest.videoOnly.isNotEmpty && manifest.audioOnly.isNotEmpty) {
-        final AudioOnlyStreamInfo audio = manifest.audioOnly.last;
-        final String audioUrl = audio.url.toString();
-        final List<MdPlayerQuality> qualities = _uniqueQualities(
-          manifest.videoOnly.map(
-            (VideoOnlyStreamInfo stream) => MdPlayerQuality(
-              label: stream.qualityLabel,
-              videoUrl: stream.url.toString(),
-              audioUrl: audioUrl,
-              videoCacheKey:
-                  mdPlayerYoutubeCacheKey(videoId, 'video', stream.tag),
-              audioCacheKey:
-                  mdPlayerYoutubeCacheKey(videoId, 'audio', audio.tag),
-              videoStreamIdentity: videoId,
-              audioStreamIdentity: videoId,
-              videoItag: stream.tag,
-              audioItag: audio.tag,
-              videoRole: 'video',
-              audioRole: 'audio',
-            ),
-          ),
-        );
-        final MdPlayerQuality selected = _defaultQuality(qualities);
-        return MdPlayerSource(
-          videoUrl: selected.videoUrl,
-          audioUrl: selected.audioUrl,
-          qualityLabel: selected.label,
-          qualities: qualities,
-          videoCacheKey: selected.videoCacheKey,
-          audioCacheKey: selected.audioCacheKey,
-          videoStreamIdentity: selected.videoStreamIdentity,
-          audioStreamIdentity: selected.audioStreamIdentity,
-          videoItag: selected.videoItag,
-          audioItag: selected.audioItag,
-          videoRole: 'video',
-          audioRole: 'audio',
-        );
+      // The VISIONOS client's adaptive URLs play without a PO token. The
+      // library's default client is the fallback when YouTube blocks it.
+      for (final List<YoutubeApiClient>? clients in <List<YoutubeApiClient>?>[
+        <YoutubeApiClient>[_visionOsClient],
+        null,
+      ]) {
+        final StreamManifest manifest;
+        try {
+          manifest = await yt.videos.streamsClient
+              .getManifest(videoId, ytClients: clients);
+        } on Exception {
+          continue;
+        }
+        try {
+          return await firstPlayableSource(
+              youtubeCandidates(videoId.value, manifest));
+        } on StateError {
+          continue;
+        }
       }
-
-      final List<MdPlayerQuality> muxedQualities = _uniqueQualities(
-        manifest.muxed.map(
-          (MuxedStreamInfo stream) => MdPlayerQuality(
-            label: stream.qualityLabel,
-            videoUrl: stream.url.toString(),
-            videoCacheKey:
-                mdPlayerYoutubeCacheKey(videoId, 'muxed', stream.tag),
-            videoStreamIdentity: videoId,
-            videoItag: stream.tag,
-            videoRole: 'muxed',
-          ),
-        ),
-      );
-      if (muxedQualities.isNotEmpty) {
-        final MdPlayerQuality selected = _defaultQuality(muxedQualities);
-        return MdPlayerSource(
-          videoUrl: selected.videoUrl,
-          qualityLabel: selected.label,
-          qualities: muxedQualities,
-          videoCacheKey: selected.videoCacheKey,
-          videoStreamIdentity: selected.videoStreamIdentity,
-          videoItag: selected.videoItag,
-          videoRole: 'muxed',
-        );
-      }
-
-      final List<MdPlayerQuality> hlsQualities = <MdPlayerQuality>[];
-      for (final HlsMuxedStreamInfo stream
-          in manifest.hls.whereType<HlsMuxedStreamInfo>()) {
-        hlsQualities.add(MdPlayerQuality(
-          label: stream.qualityLabel,
-          videoUrl: stream.url.toString(),
-        ));
-      }
-      if (hlsQualities.isNotEmpty) {
-        final MdPlayerQuality selected = _defaultQuality(hlsQualities);
-        return MdPlayerSource(
-          videoUrl: selected.videoUrl,
-          formatHint: VideoFormat.hls,
-          qualityLabel: selected.label,
-          qualities: hlsQualities,
-        );
-      }
-
       throw StateError('No playable YouTube stream found');
     } finally {
       yt.close();
+    }
+  }
+
+  /// Playback candidates for [manifest], in preference order.
+  ///
+  /// Adaptive streams allow quality switching, but YouTube may reject them
+  /// with 403 for clients that need a PO token while muxed streams still
+  /// play, so each candidate is probed before use.
+  @visibleForTesting
+  List<MdPlayerSource> youtubeCandidates(
+      String videoId, StreamManifest manifest) {
+    final List<MdPlayerSource> candidates = <MdPlayerSource>[];
+    if (manifest.videoOnly.isNotEmpty && manifest.audioOnly.isNotEmpty) {
+      // AAC in MP4 and H.264 decode on every Android device; VP9 and AV1
+      // only cover labels without an H.264 stream.
+      final List<AudioOnlyStreamInfo> mp4Audio = manifest.audioOnly
+          .where((AudioOnlyStreamInfo stream) =>
+              stream.container == StreamContainer.mp4)
+          .toList();
+      final AudioOnlyStreamInfo audio =
+          (mp4Audio.isEmpty ? manifest.audioOnly : mp4Audio)
+              .withHighestBitrate();
+      final String audioUrl = audio.url.toString();
+      final List<MdPlayerQuality> qualities = _uniqueQualities(
+        (manifest.videoOnly.toList()
+              ..sort((VideoOnlyStreamInfo a, VideoOnlyStreamInfo b) =>
+                  _codecRank(a.videoCodec).compareTo(_codecRank(b.videoCodec))))
+            .map(
+          (VideoOnlyStreamInfo stream) => MdPlayerQuality(
+            label: stream.qualityLabel,
+            videoUrl: stream.url.toString(),
+            audioUrl: audioUrl,
+            videoCacheKey:
+                mdPlayerYoutubeCacheKey(videoId, 'video', stream.tag),
+            audioCacheKey: mdPlayerYoutubeCacheKey(videoId, 'audio', audio.tag),
+            videoStreamIdentity: videoId,
+            audioStreamIdentity: videoId,
+            videoItag: stream.tag,
+            audioItag: audio.tag,
+            videoRole: 'video',
+            audioRole: 'audio',
+          ),
+        ),
+      );
+      final MdPlayerQuality selected = _defaultQuality(qualities);
+      candidates.add(MdPlayerSource(
+        videoUrl: selected.videoUrl,
+        audioUrl: selected.audioUrl,
+        qualityLabel: selected.label,
+        qualities: qualities,
+        videoCacheKey: selected.videoCacheKey,
+        audioCacheKey: selected.audioCacheKey,
+        videoStreamIdentity: selected.videoStreamIdentity,
+        audioStreamIdentity: selected.audioStreamIdentity,
+        videoItag: selected.videoItag,
+        audioItag: selected.audioItag,
+        videoRole: 'video',
+        audioRole: 'audio',
+      ));
+    }
+
+    final List<MdPlayerQuality> muxedQualities = _uniqueQualities(
+      manifest.muxed.map(
+        (MuxedStreamInfo stream) => MdPlayerQuality(
+          label: stream.qualityLabel,
+          videoUrl: stream.url.toString(),
+          videoCacheKey: mdPlayerYoutubeCacheKey(videoId, 'muxed', stream.tag),
+          videoStreamIdentity: videoId,
+          videoItag: stream.tag,
+          videoRole: 'muxed',
+        ),
+      ),
+    );
+    if (muxedQualities.isNotEmpty) {
+      final MdPlayerQuality selected = _defaultQuality(muxedQualities);
+      candidates.add(MdPlayerSource(
+        videoUrl: selected.videoUrl,
+        qualityLabel: selected.label,
+        qualities: muxedQualities,
+        videoCacheKey: selected.videoCacheKey,
+        videoStreamIdentity: selected.videoStreamIdentity,
+        videoItag: selected.videoItag,
+        videoRole: 'muxed',
+      ));
+    }
+
+    final List<MdPlayerQuality> hlsQualities = <MdPlayerQuality>[];
+    for (final HlsMuxedStreamInfo stream
+        in manifest.hls.whereType<HlsMuxedStreamInfo>()) {
+      hlsQualities.add(MdPlayerQuality(
+        label: stream.qualityLabel,
+        videoUrl: stream.url.toString(),
+      ));
+    }
+    if (hlsQualities.isNotEmpty) {
+      final MdPlayerQuality selected = _defaultQuality(hlsQualities);
+      candidates.add(MdPlayerSource(
+        videoUrl: selected.videoUrl,
+        formatHint: VideoFormat.hls,
+        qualityLabel: selected.label,
+        qualities: hlsQualities,
+      ));
+    }
+
+    return candidates;
+  }
+
+  /// Returns the first candidate whose streams accept Media3's initial
+  /// open-ended range request.
+  @visibleForTesting
+  Future<MdPlayerSource> firstPlayableSource(
+      List<MdPlayerSource> candidates) async {
+    for (final MdPlayerSource candidate in candidates) {
+      if (await _accepts(candidate.videoUrl, candidate.httpHeaders) &&
+          (candidate.audioUrl == null ||
+              await _accepts(candidate.audioUrl!,
+                  candidate.audioHttpHeaders ?? candidate.httpHeaders))) {
+        return candidate;
+      }
+    }
+    throw StateError('No playable YouTube stream found');
+  }
+
+  Future<bool> _accepts(String url, Map<String, String> headers) async {
+    final http.Request request = http.Request('GET', Uri.parse(url))
+      ..headers.addAll(headers)
+      ..headers['range'] = 'bytes=0-';
+    try {
+      final http.StreamedResponse response = await _httpClient.send(request);
+      // Only the status matters; drop the body instead of downloading it.
+      await response.stream.listen(null).cancel();
+      return response.statusCode == 200 || response.statusCode == 206;
+    } on Exception {
+      return false;
     }
   }
 
@@ -363,6 +432,36 @@ class MdPlayerSourceResolver {
   void close() {
     _httpClient.close();
   }
+}
+
+// Mirrors yt-dlp's `visionos` InnerTube client.
+const YoutubeApiClient _visionOsClient = YoutubeApiClient(
+  <String, dynamic>{
+    'context': <String, dynamic>{
+      'client': <String, dynamic>{
+        'clientName': 'VISIONOS',
+        'clientVersion': '1.02',
+        'deviceMake': 'Apple',
+        'deviceModel': 'RealityDevice17,1',
+        'userAgent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) '
+            'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 '
+            'Safari/605.1.15',
+        'osName': 'visionOS',
+        'osVersion': '26.5.23O471',
+        'hl': 'en',
+        'timeZone': 'UTC',
+        'utcOffsetMinutes': 0,
+      },
+    },
+  },
+  'https://www.youtube.com/youtubei/v1/player?prettyPrint=false',
+);
+
+/// Ranks codecs so later entries win in [_uniqueQualities].
+int _codecRank(String codec) {
+  if (codec.startsWith('avc1')) return 2;
+  if (codec.startsWith('vp9') || codec.startsWith('vp09')) return 1;
+  return 0;
 }
 
 List<MdPlayerQuality> _uniqueQualities(Iterable<MdPlayerQuality> qualities) {
