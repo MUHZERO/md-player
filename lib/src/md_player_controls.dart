@@ -279,3 +279,18 @@ typedef MdPlayerErrorBuilder = Widget Function(
   String message,
   Future<void> Function() retry,
 );
+
+/// A titled section of the video, marked on the modern progress bar.
+///
+/// Jump to one with `controller.seekTo(chapter.start)`.
+@immutable
+class MdPlayerChapter {
+  /// Creates a chapter starting at [start].
+  const MdPlayerChapter({required this.start, required this.title});
+
+  /// Position where the chapter begins.
+  final Duration start;
+
+  /// Title shown while scrubbing inside the chapter.
+  final String title;
+}

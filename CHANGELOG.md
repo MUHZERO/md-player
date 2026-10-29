@@ -11,6 +11,10 @@
 * Lays out modern controls like a mobile video app: centered seek-back,
   play/pause and seek-forward, settings at the top, and a bottom sheet for
   quality, speed, volume and lock instead of a panel over the video.
+* Locked controls ignore every gesture; a tap only shows the unlock button
+  for a few seconds, and that button is the only way to unlock.
+* Adds `MdPlayer.chapters`: chapter starts are marked on the modern progress
+  bar and the current chapter title shows while scrubbing.
 * Resolves YouTube adaptive streams through the VISIONOS client, which plays
   them without a PO token, and probes each candidate before playback.
 * Adds YouTube/Vimeo source resolution and merged playback for compatible

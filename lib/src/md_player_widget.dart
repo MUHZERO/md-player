@@ -35,6 +35,7 @@ class MdPlayer extends StatefulWidget {
     this.onRetry,
     this.loadingBuilder,
     this.errorBuilder,
+    this.chapters = const <MdPlayerChapter>[],
   });
 
   /// Playback controller that owns the texture and native player.
@@ -88,6 +89,9 @@ class MdPlayer extends StatefulWidget {
 
   /// Optional replacement for the fatal modern error overlay.
   final MdPlayerErrorBuilder? errorBuilder;
+
+  /// Chapters sorted by start, marked on the modern progress bar.
+  final List<MdPlayerChapter> chapters;
 
   @override
   State<MdPlayer> createState() => _MdPlayerState();
@@ -318,7 +322,7 @@ class _LegacyOverlayState extends State<_LegacyOverlay> {
   }
 }
 
-enum _VisibilityState { hidden, visible, interacting, settings, locked, error }
+enum _VisibilityState { hidden, visible, interacting, settings, error }
 
 class _PlayPauseIntent extends Intent {
   const _PlayPauseIntent();
@@ -370,10 +374,14 @@ class _ModernControlsState extends State<_ModernControls> {
   String? _qualityFailure;
   Timer? _failureTimer;
   ModalBottomSheetRoute<void>? _sheet;
+  // Locked: every gesture is ignored and controls stay hidden; a tap only
+  // flashes the unlock button, which is the single way out.
+  bool _locked = false;
+  bool _unlockShown = false;
+  Timer? _unlockTimer;
 
   bool get _shown => _visibility != _VisibilityState.hidden;
   bool get _settings => _visibility == _VisibilityState.settings;
-  bool get _locked => _visibility == _VisibilityState.locked;
 
   @override
   void initState() {
@@ -402,6 +410,7 @@ class _ModernControlsState extends State<_ModernControls> {
     _hideTimer?.cancel();
     _feedbackTimer?.cancel();
     _failureTimer?.cancel();
+    _unlockTimer?.cancel();
     // The sheet listens to the adapter, which is disposed with this player.
     final ModalBottomSheetRoute<void>? sheet = _sheet;
     if (sheet != null && sheet.isActive) {
@@ -453,9 +462,13 @@ class _ModernControlsState extends State<_ModernControls> {
         configuration: _configuration,
         onLock: _configuration.enableLock
             ? () {
-                if (mounted) {
-                  setState(() => _visibility = _VisibilityState.locked);
-                }
+                if (!mounted) return;
+                _hideTimer?.cancel();
+                setState(() {
+                  _locked = true;
+                  _visibility = _VisibilityState.hidden;
+                });
+                _flashUnlock();
               }
             : null,
       ),
@@ -463,7 +476,30 @@ class _ModernControlsState extends State<_ModernControls> {
     _sheet = sheet;
     await Navigator.of(context).push(sheet);
     _sheet = null;
-    if (mounted && _settings) _show();
+    if (!mounted || !_settings) return;
+    if (_locked) {
+      setState(() => _visibility = _VisibilityState.hidden);
+    } else {
+      _show();
+    }
+  }
+
+  void _flashUnlock() {
+    _unlockTimer?.cancel();
+    setState(() => _unlockShown = true);
+    if (MediaQuery.maybeOf(context)?.accessibleNavigation == true) return;
+    _unlockTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _unlockShown = false);
+    });
+  }
+
+  void _unlock() {
+    _unlockTimer?.cancel();
+    setState(() {
+      _locked = false;
+      _unlockShown = false;
+    });
+    _show();
   }
 
   void _scheduleHide() {
@@ -564,7 +600,8 @@ class _ModernControlsState extends State<_ModernControls> {
     final MdPlayerStyle style = widget.player.style;
     final Map<ShortcutActivator, Intent> shortcuts =
         <ShortcutActivator, Intent>{
-      if (_configuration.enableKeyboard) ...<ShortcutActivator, Intent>{
+      if (_configuration.enableKeyboard &&
+          !_locked) ...<ShortcutActivator, Intent>{
         const SingleActivator(LogicalKeyboardKey.space):
             const _PlayPauseIntent(),
         const SingleActivator(LogicalKeyboardKey.keyK):
@@ -621,7 +658,7 @@ class _ModernControlsState extends State<_ModernControls> {
             ),
             _EscapeIntent: CallbackAction<_EscapeIntent>(
               onInvoke: (_) => setState(() {
-                _visibility = _settings || _locked
+                _visibility = _settings
                     ? _VisibilityState.visible
                     : _VisibilityState.hidden;
               }),
@@ -637,99 +674,97 @@ class _ModernControlsState extends State<_ModernControls> {
                   children: <Widget>[
                     GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTap: _toggleControls,
+                      onTap: _locked ? _flashUnlock : _toggleControls,
                       onDoubleTapDown: (TapDownDetails details) =>
                           _doubleTapPosition = details.localPosition,
                       onDoubleTap: () => _handleDoubleTap(constraints),
                     ),
                     _StatusOverlays(
                         player: widget.player, adapter: widget.adapter),
-                    if (_shown && widget.adapter.error.value == null)
-                      _locked
-                          ? SafeArea(
-                              child: Align(
-                                alignment: AlignmentDirectional.centerStart,
-                                child: _ControlButton(
-                                  icon: widget.player.icons.unlock,
-                                  label: widget.player.labels.unlock,
-                                  color: style.foreground,
-                                  onPressed: _show,
-                                ),
-                              ),
-                            )
-                          : IgnorePointer(
-                              ignoring: _settings,
-                              child: ColoredBox(
-                                color: style.scrim,
-                                child: SafeArea(
-                                  child: Stack(
-                                    children: <Widget>[
-                                      Align(
-                                        alignment: Alignment.topCenter,
-                                        child: _TopBar(
-                                          player: widget.player,
-                                          onSettings: _openSettings,
-                                        ),
-                                      ),
-                                      // The timeline, double-tap seeking and
-                                      // seek buttons run left to right in
-                                      // every locale.
-                                      Center(
-                                        child: _CenterControls(
-                                          player: widget.player,
-                                          adapter: widget.adapter,
-                                          layout: layout,
-                                          onPlayPause: _togglePlayback,
-                                          onSeek: (bool forward) => unawaited(
-                                              _seekBy(forward
-                                                  ? _configuration.seekInterval
-                                                  : -_configuration
-                                                      .seekInterval)),
-                                        ),
-                                      ),
-                                      Align(
-                                        alignment: Alignment.bottomCenter,
-                                        child: Directionality(
-                                          textDirection: TextDirection.ltr,
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: <Widget>[
-                                              _BottomBar(
-                                                player: widget.player,
-                                                adapter: widget.adapter,
-                                                configuration: _configuration,
-                                                layout: layout,
-                                                onFullscreen: _fullscreen,
-                                              ),
-                                              _ProgressBar(
-                                                player: widget.player,
-                                                adapter: widget.adapter,
-                                                preview: _dragPreview,
-                                                onInteraction:
-                                                    (Duration? preview) {
-                                                  setState(() {
-                                                    _dragPreview = preview;
-                                                    _visibility =
-                                                        preview == null
-                                                            ? _VisibilityState
-                                                                .visible
-                                                            : _VisibilityState
-                                                                .interacting;
-                                                  });
-                                                  if (preview == null) {
-                                                    _scheduleHide();
-                                                  }
-                                                },
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                    if (_locked && _unlockShown)
+                      SafeArea(
+                        child: Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: _ControlButton(
+                            icon: widget.player.icons.unlock,
+                            label: widget.player.labels.unlock,
+                            color: style.foreground,
+                            onPressed: _unlock,
+                          ),
+                        ),
+                      )
+                    else if (!_locked &&
+                        _shown &&
+                        widget.adapter.error.value == null)
+                      IgnorePointer(
+                        ignoring: _settings,
+                        child: ColoredBox(
+                          color: style.scrim,
+                          child: SafeArea(
+                            child: Stack(
+                              children: <Widget>[
+                                Align(
+                                  alignment: Alignment.topCenter,
+                                  child: _TopBar(
+                                    player: widget.player,
+                                    onSettings: _openSettings,
                                   ),
                                 ),
-                              ),
+                                // The timeline, double-tap seeking and
+                                // seek buttons run left to right in
+                                // every locale.
+                                Center(
+                                  child: _CenterControls(
+                                    player: widget.player,
+                                    adapter: widget.adapter,
+                                    layout: layout,
+                                    onPlayPause: _togglePlayback,
+                                    onSeek: (bool forward) => unawaited(_seekBy(
+                                        forward
+                                            ? _configuration.seekInterval
+                                            : -_configuration.seekInterval)),
+                                  ),
+                                ),
+                                Align(
+                                  alignment: Alignment.bottomCenter,
+                                  child: Directionality(
+                                    textDirection: TextDirection.ltr,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: <Widget>[
+                                        _BottomBar(
+                                          player: widget.player,
+                                          adapter: widget.adapter,
+                                          configuration: _configuration,
+                                          layout: layout,
+                                          onFullscreen: _fullscreen,
+                                        ),
+                                        _ProgressBar(
+                                          player: widget.player,
+                                          adapter: widget.adapter,
+                                          preview: _dragPreview,
+                                          onInteraction: (Duration? preview) {
+                                            setState(() {
+                                              _dragPreview = preview;
+                                              _visibility = preview == null
+                                                  ? _VisibilityState.visible
+                                                  : _VisibilityState
+                                                      .interacting;
+                                            });
+                                            if (preview == null) {
+                                              _scheduleHide();
+                                            }
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
+                          ),
+                        ),
+                      ),
                     if (_feedbackTarget != null)
                       Align(
                         // Above the centered seek buttons, on the seek side.
@@ -1056,6 +1091,7 @@ class _ProgressBarState extends State<_ProgressBar> {
       builder: (_, _Timeline timeline, __) => LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           final Duration shown = widget.preview ?? timeline.position;
+          final List<MdPlayerChapter> chapters = widget.player.chapters;
           final double duration = timeline.duration.inMilliseconds.toDouble();
           final double played =
               duration <= 0 ? 0 : (shown.inMilliseconds / duration).clamp(0, 1);
@@ -1142,11 +1178,33 @@ class _ProgressBarState extends State<_ProgressBar> {
                         ),
                       ),
                     ),
+                    for (final MdPlayerChapter chapter in chapters)
+                      if (chapter.start > Duration.zero &&
+                          chapter.start < timeline.duration)
+                        Align(
+                          key: ValueKey<Duration>(chapter.start),
+                          alignment: Alignment(
+                              chapter.start.inMilliseconds / duration * 2 - 1,
+                              0),
+                          // A gap in the track, like the usual chapter split.
+                          child: const SizedBox(
+                            width: 3,
+                            height: 3,
+                            child: ColoredBox(color: Colors.black),
+                          ),
+                        ),
                     if (widget.preview != null)
                       Align(
                         alignment: Alignment(played * 2 - 1, -1),
                         child: Text(
-                          _format(widget.preview!),
+                          <String>[
+                            if (_chapterAt(chapters, widget.preview!)
+                                case final MdPlayerChapter chapter)
+                              chapter.title,
+                            _format(widget.preview!),
+                          ].join(' · '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: widget.player.style.foreground,
                             fontSize: 11,
@@ -1638,4 +1696,13 @@ String _format(Duration duration) {
   return hours > 0
       ? '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}'
       : '$minutes:${seconds.toString().padLeft(2, '0')}';
+}
+
+MdPlayerChapter? _chapterAt(List<MdPlayerChapter> chapters, Duration at) {
+  MdPlayerChapter? found;
+  for (final MdPlayerChapter chapter in chapters) {
+    if (chapter.start > at) break;
+    found = chapter;
+  }
+  return found;
 }

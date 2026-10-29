@@ -19,7 +19,7 @@ For Flutter apps that stream lessons or long videos on Android and need more con
 ![Flutter](https://img.shields.io/badge/Flutter-%E2%89%A53.24-02569B?logo=flutter&logoColor=white)
 ![Media3](https://img.shields.io/badge/Media3-1.10.1-34A853?logo=android&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-API%2023%2B-34A853)
-![Tests](https://img.shields.io/badge/Dart%20tests-67-2EA44F)
+![Tests](https://img.shields.io/badge/Dart%20tests-73-2EA44F)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 </div>
@@ -190,6 +190,24 @@ never cover the video. Double-tap the left or right third to seek; keyboard
 actions and accessibility labels are included. The timeline and seek controls
 stay left-to-right in right-to-left locales. Modern controls do not replace the
 Media3 player or own playback authority.
+
+Locking the controls from the settings sheet ignores taps, double-taps and
+drags on the video. A tap shows only an unlock button for a few seconds.
+
+Chapters, sorted by start, are marked on the progress bar; the chapter title
+appears next to the time while scrubbing. Jump to one with
+`controller.seekTo(chapter.start)`:
+
+```dart
+MdPlayer(
+  controller: controller,
+  controlsMode: MdPlayerControlsMode.modern,
+  chapters: const <MdPlayerChapter>[
+    MdPlayerChapter(start: Duration.zero, title: 'Introduction'),
+    MdPlayerChapter(start: Duration(minutes: 4), title: 'Exercises'),
+  ],
+)
+```
 
 All visible text comes from `MdPlayerControlsLabels` (English defaults), so a
 localized app should pass its own labels, including `speed`, `normalSpeed`,
