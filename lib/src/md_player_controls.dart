@@ -111,6 +111,7 @@ class MdPlayerControlsLabels {
     this.progress = 'Playback position',
     this.settings = 'Settings',
     this.speed = 'Playback speed',
+    this.normalSpeed = 'Normal',
     this.quality = 'Quality',
     this.fullscreen = 'Enter fullscreen',
     this.exitFullscreen = 'Exit fullscreen',
@@ -157,6 +158,9 @@ class MdPlayerControlsLabels {
 
   /// Playback-speed setting label.
   final String speed;
+
+  /// Name shown for the 1x playback speed.
+  final String normalSpeed;
 
   /// Quality setting label.
   final String quality;
@@ -213,6 +217,8 @@ class MdPlayerControlsIcons {
     this.close = Icons.close,
     this.quality = Icons.high_quality,
     this.speed = Icons.speed,
+    this.seekBackward = Icons.replay_10,
+    this.seekForward = Icons.forward_10,
   });
 
   /// Play icon.
@@ -253,6 +259,12 @@ class MdPlayerControlsIcons {
 
   /// Playback-speed icon.
   final IconData speed;
+
+  /// Seek-backward icon.
+  final IconData seekBackward;
+
+  /// Seek-forward icon.
+  final IconData seekForward;
 }
 
 /// Builds the initial-loading UI for an `MdPlayer`.

@@ -143,7 +143,7 @@ void main() {
     await controller.dispose().timeout(const Duration(seconds: 2));
   });
 
-  testWidgets('compact modern layout exposes speed through settings',
+  testWidgets('settings sheet opens quality and speed lists',
       (WidgetTester tester) async {
     final _Platform platform = _Platform();
     VideoPlayerPlatform.instance = platform;
@@ -168,11 +168,30 @@ void main() {
       ),
     ));
 
-    expect(find.byTooltip('Playback speed'), findsNothing);
+    expect(find.byTooltip('Seek backward'), findsOneWidget);
+    expect(find.byTooltip('Seek forward'), findsOneWidget);
+    expect(find.text('Playback speed'), findsNothing);
     await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('Playback speed'), findsOneWidget);
+    expect(find.text('Playback speed'), findsOneWidget);
+    expect(find.text('Normal'), findsOneWidget);
+
+    await tester.tap(find.text('Playback speed'));
+    await tester.pumpAndSettle();
+    expect(find.text('1.5x'), findsOneWidget);
+    await tester.tap(find.text('1.5x'));
+    await tester.pumpAndSettle();
+    expect(find.text('1.5x'), findsNothing);
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Quality'));
+    await tester.pumpAndSettle();
     expect(find.text('1080p'), findsOneWidget);
+    expect(find.text('360p'), findsOneWidget);
+    await tester.tap(find.byType(BackButtonIcon));
+    await tester.pumpAndSettle();
+    expect(find.text('Playback speed'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     await controller.dispose().timeout(const Duration(seconds: 2));
   });

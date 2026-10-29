@@ -77,7 +77,7 @@ void main() {
 
     await tester.tap(find.byTooltip('Phase 4 settings'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Playback speed'));
+    await tester.tap(find.text('Playback speed'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('1.5x').last);
     await tester.pump();
@@ -89,7 +89,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(controller.value.position, greaterThan(Duration.zero));
 
+    await _showControls(tester, 'Phase 4 settings');
     await tester.tap(find.byTooltip('Phase 4 settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Quality'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('1080p').last);
     await _waitForQuality(controller);

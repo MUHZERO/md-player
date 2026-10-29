@@ -182,10 +182,18 @@ MdPlayer(
 )
 ```
 
-Modern controls add responsive progress, speed and quality settings,
-double-tap seeking, optional volume controls, keyboard actions, accessibility
-labels, and controls locking. They do not replace the Media3 player or own
-playback authority.
+Modern controls follow the familiar mobile video layout: seek-back, play/pause
+and seek-forward in the center, settings at the top, time and fullscreen above
+a thin progress bar at the bottom edge. Settings open in a bottom sheet with
+quality and playback-speed lists, optional volume and controls locking, so they
+never cover the video. Double-tap the left or right third to seek; keyboard
+actions and accessibility labels are included. The timeline and seek controls
+stay left-to-right in right-to-left locales. Modern controls do not replace the
+Media3 player or own playback authority.
+
+All visible text comes from `MdPlayerControlsLabels` (English defaults), so a
+localized app should pass its own labels, including `speed`, `normalSpeed`,
+`quality`, `lock`, `seekBackward` and `seekForward`.
 
 ## Host-owned fullscreen
 

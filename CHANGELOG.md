@@ -8,6 +8,11 @@
   YouTube resource keys, and guarded clear/remove/disable operations.
 * Adds opt-in modern Flutter controls while preserving legacy controls as the
   default.
+* Lays out modern controls like a mobile video app: centered seek-back,
+  play/pause and seek-forward, settings at the top, and a bottom sheet for
+  quality, speed, volume and lock instead of a panel over the video.
+* Resolves YouTube adaptive streams through the VISIONOS client, which plays
+  them without a PO token, and probes each candidate before playback.
 * Adds YouTube/Vimeo source resolution and merged playback for compatible
   separate audio/video streams.
 * Updates Android playback dependencies to Media3 1.10.1.

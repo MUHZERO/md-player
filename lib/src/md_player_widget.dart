@@ -366,7 +366,10 @@ class _ModernControlsState extends State<_ModernControls> {
   Duration? _requestedTarget;
   Duration? _feedbackTarget;
   Duration? _dragPreview;
+  bool _feedbackForward = true;
   String? _qualityFailure;
+  Timer? _failureTimer;
+  ModalBottomSheetRoute<void>? _sheet;
 
   bool get _shown => _visibility != _VisibilityState.hidden;
   bool get _settings => _visibility == _VisibilityState.settings;
@@ -398,6 +401,12 @@ class _ModernControlsState extends State<_ModernControls> {
   void dispose() {
     _hideTimer?.cancel();
     _feedbackTimer?.cancel();
+    _failureTimer?.cancel();
+    // The sheet listens to the adapter, which is disposed with this player.
+    final ModalBottomSheetRoute<void>? sheet = _sheet;
+    if (sheet != null && sheet.isActive) {
+      sheet.navigator?.removeRoute(sheet);
+    }
     widget.adapter.playback.removeListener(_playbackChanged);
     widget.adapter.error.removeListener(_errorChanged);
     widget.adapter.quality.removeListener(_qualityChanged);
@@ -420,17 +429,41 @@ class _ModernControlsState extends State<_ModernControls> {
     if (!mounted) return;
     final MdQualitySwitchState state = widget.adapter.quality.value;
     if (state.status == MdQualitySwitchStatus.completed) {
-      setState(() {
-        _qualityFailure = null;
-        _visibility = _VisibilityState.visible;
-      });
-      _scheduleHide();
+      _failureTimer?.cancel();
+      setState(() => _qualityFailure = null);
     } else if (state.status == MdQualitySwitchStatus.failed) {
-      setState(() {
-        _qualityFailure = widget.player.labels.qualityFailed;
-        _visibility = _VisibilityState.settings;
+      _failureTimer?.cancel();
+      setState(() => _qualityFailure = widget.player.labels.qualityFailed);
+      _failureTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _qualityFailure = null);
       });
     }
+  }
+
+  Future<void> _openSettings() async {
+    _hideTimer?.cancel();
+    setState(() => _visibility = _VisibilityState.settings);
+    final ModalBottomSheetRoute<void> sheet = ModalBottomSheetRoute<void>(
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (_) => _SettingsSheet(
+        player: widget.player,
+        adapter: widget.adapter,
+        configuration: _configuration,
+        onLock: _configuration.enableLock
+            ? () {
+                if (mounted) {
+                  setState(() => _visibility = _VisibilityState.locked);
+                }
+              }
+            : null,
+      ),
+    );
+    _sheet = sheet;
+    await Navigator.of(context).push(sheet);
+    _sheet = null;
+    if (mounted && _settings) _show();
   }
 
   void _scheduleHide() {
@@ -485,6 +518,7 @@ class _ModernControlsState extends State<_ModernControls> {
     final Duration base = _requestedTarget ?? value.position;
     final Duration target = _clampDuration(base + delta, value.duration);
     setState(() {
+      _feedbackForward = delta > Duration.zero;
       _requestedTarget = target;
       _feedbackTarget = target;
       _visibility = _VisibilityState.interacting;
@@ -527,7 +561,6 @@ class _ModernControlsState extends State<_ModernControls> {
   @override
   Widget build(BuildContext context) {
     MdPlayerRebuildDiagnostics.controls();
-    final bool disableAnimations = MediaQuery.disableAnimationsOf(context);
     final MdPlayerStyle style = widget.player.style;
     final Map<ShortcutActivator, Intent> shortcuts =
         <ShortcutActivator, Intent>{
@@ -611,137 +644,133 @@ class _ModernControlsState extends State<_ModernControls> {
                     ),
                     _StatusOverlays(
                         player: widget.player, adapter: widget.adapter),
-                    if (_feedbackTarget != null)
-                      Center(
-                        child: Semantics(
-                          liveRegion: true,
-                          label: _format(_feedbackTarget!),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: style.scrim,
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 10,
+                    if (_shown && widget.adapter.error.value == null)
+                      _locked
+                          ? SafeArea(
+                              child: Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: _ControlButton(
+                                  icon: widget.player.icons.unlock,
+                                  label: widget.player.labels.unlock,
+                                  color: style.foreground,
+                                  onPressed: _show,
+                                ),
                               ),
-                              child: Text(
+                            )
+                          : IgnorePointer(
+                              ignoring: _settings,
+                              child: ColoredBox(
+                                color: style.scrim,
+                                child: SafeArea(
+                                  child: Stack(
+                                    children: <Widget>[
+                                      Align(
+                                        alignment: Alignment.topCenter,
+                                        child: _TopBar(
+                                          player: widget.player,
+                                          onSettings: _openSettings,
+                                        ),
+                                      ),
+                                      // The timeline, double-tap seeking and
+                                      // seek buttons run left to right in
+                                      // every locale.
+                                      Center(
+                                        child: _CenterControls(
+                                          player: widget.player,
+                                          adapter: widget.adapter,
+                                          layout: layout,
+                                          onPlayPause: _togglePlayback,
+                                          onSeek: (bool forward) => unawaited(
+                                              _seekBy(forward
+                                                  ? _configuration.seekInterval
+                                                  : -_configuration
+                                                      .seekInterval)),
+                                        ),
+                                      ),
+                                      Align(
+                                        alignment: Alignment.bottomCenter,
+                                        child: Directionality(
+                                          textDirection: TextDirection.ltr,
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: <Widget>[
+                                              _BottomBar(
+                                                player: widget.player,
+                                                adapter: widget.adapter,
+                                                configuration: _configuration,
+                                                layout: layout,
+                                                onFullscreen: _fullscreen,
+                                              ),
+                                              _ProgressBar(
+                                                player: widget.player,
+                                                adapter: widget.adapter,
+                                                preview: _dragPreview,
+                                                onInteraction:
+                                                    (Duration? preview) {
+                                                  setState(() {
+                                                    _dragPreview = preview;
+                                                    _visibility =
+                                                        preview == null
+                                                            ? _VisibilityState
+                                                                .visible
+                                                            : _VisibilityState
+                                                                .interacting;
+                                                  });
+                                                  if (preview == null) {
+                                                    _scheduleHide();
+                                                  }
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                    if (_feedbackTarget != null)
+                      Align(
+                        // Above the centered seek buttons, on the seek side.
+                        alignment:
+                            Alignment(_feedbackForward ? 0.6 : -0.6, -0.5),
+                        child: _Pill(
+                          style: style,
+                          liveRegion: true,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            textDirection: TextDirection.ltr,
+                            children: <Widget>[
+                              if (!_feedbackForward) ...<Widget>[
+                                Icon(widget.player.icons.seekBackward,
+                                    color: style.foreground, size: 18),
+                                const SizedBox(width: 6),
+                              ],
+                              Text(
                                 _format(_feedbackTarget!),
+                                textDirection: TextDirection.ltr,
                                 style: TextStyle(color: style.foreground),
                               ),
-                            ),
+                              if (_feedbackForward) ...<Widget>[
+                                const SizedBox(width: 6),
+                                Icon(widget.player.icons.seekForward,
+                                    color: style.foreground, size: 18),
+                              ],
+                            ],
                           ),
                         ),
                       ),
-                    if (_shown && widget.adapter.error.value == null)
-                      SafeArea(
-                        child: ColoredBox(
-                          color: style.scrim,
-                          child: _locked
-                              ? Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: _ControlButton(
-                                    icon: widget.player.icons.unlock,
-                                    label: widget.player.labels.unlock,
-                                    color: style.foreground,
-                                    onPressed: () => setState(() =>
-                                        _visibility = _VisibilityState.visible),
-                                  ),
-                                )
-                              : Column(
-                                  children: <Widget>[
-                                    _TopBar(player: widget.player),
-                                    Expanded(
-                                      child: _settings
-                                          ? _SettingsPanel(
-                                              player: widget.player,
-                                              adapter: widget.adapter,
-                                              configuration: _configuration,
-                                              failure: _qualityFailure,
-                                            )
-                                          : Center(
-                                              child: ValueListenableBuilder<
-                                                  _Playback>(
-                                                valueListenable:
-                                                    widget.adapter.playback,
-                                                builder: (_, _Playback playback,
-                                                    __) {
-                                                  final MdPlayerValue value =
-                                                      widget.adapter.controller
-                                                          .value;
-                                                  final bool replay =
-                                                      !playback.playing &&
-                                                          value.duration >
-                                                              Duration.zero &&
-                                                          value.position >=
-                                                              value.duration;
-                                                  return AnimatedScale(
-                                                    scale: 1,
-                                                    duration: disableAnimations
-                                                        ? Duration.zero
-                                                        : _configuration
-                                                            .animationDuration,
-                                                    child: _ControlButton(
-                                                      size: 64,
-                                                      icon: replay
-                                                          ? widget.player.icons
-                                                              .replay
-                                                          : playback.playing
-                                                              ? widget.player
-                                                                  .icons.pause
-                                                              : widget.player
-                                                                  .icons.play,
-                                                      label: replay
-                                                          ? widget.player.labels
-                                                              .replay
-                                                          : playback.playing
-                                                              ? widget.player
-                                                                  .labels.pause
-                                                              : widget.player
-                                                                  .labels.play,
-                                                      color: style.foreground,
-                                                      onPressed:
-                                                          _togglePlayback,
-                                                    ),
-                                                  );
-                                                },
-                                              ),
-                                            ),
-                                    ),
-                                    _ProgressBar(
-                                      player: widget.player,
-                                      adapter: widget.adapter,
-                                      preview: _dragPreview,
-                                      onInteraction: (Duration? preview) {
-                                        setState(() {
-                                          _dragPreview = preview;
-                                          _visibility = preview == null
-                                              ? _VisibilityState.visible
-                                              : _VisibilityState.interacting;
-                                        });
-                                        if (preview == null) _scheduleHide();
-                                      },
-                                    ),
-                                    _BottomBar(
-                                      player: widget.player,
-                                      adapter: widget.adapter,
-                                      configuration: _configuration,
-                                      layout: layout,
-                                      onSettings: () => setState(() {
-                                        _qualityFailure = null;
-                                        _visibility = _settings
-                                            ? _VisibilityState.visible
-                                            : _VisibilityState.settings;
-                                      }),
-                                      onFullscreen: _fullscreen,
-                                      onLock: _configuration.enableLock
-                                          ? () => setState(() => _visibility =
-                                              _VisibilityState.locked)
-                                          : null,
-                                    ),
-                                  ],
-                                ),
+                    if (_qualityFailure != null)
+                      Align(
+                        alignment: const Alignment(0, 0.45),
+                        child: _Pill(
+                          style: style,
+                          liveRegion: true,
+                          child: Text(
+                            _qualityFailure!,
+                            style: TextStyle(color: style.foreground),
+                          ),
                         ),
                       ),
                   ],
@@ -772,11 +801,14 @@ enum _PlayerLayout {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.player});
+  const _TopBar({required this.player, required this.onSettings});
   final MdPlayer player;
+  final VoidCallback onSettings;
 
   @override
   Widget build(BuildContext context) => Row(
+        // Close on the left and settings on the right, as on YouTube.
+        textDirection: TextDirection.ltr,
         children: <Widget>[
           if (player.onClose != null)
             _ControlButton(
@@ -788,9 +820,10 @@ class _TopBar extends StatelessWidget {
           if (player.title != null || player.subtitle != null)
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
                     if (player.title != null)
                       Text(
@@ -816,8 +849,98 @@ class _TopBar extends StatelessWidget {
           else
             const Spacer(),
           ...player.topActions,
+          _ControlButton(
+            icon: player.icons.settings,
+            label: player.labels.settings,
+            color: player.style.foreground,
+            onPressed: onSettings,
+          ),
         ],
       );
+}
+
+/// Seek-backward, play/pause and seek-forward, centered over the video.
+class _CenterControls extends StatelessWidget {
+  const _CenterControls({
+    required this.player,
+    required this.adapter,
+    required this.layout,
+    required this.onPlayPause,
+    required this.onSeek,
+  });
+
+  final MdPlayer player;
+  final _MdPlayerAdapter adapter;
+  final _PlayerLayout layout;
+  final VoidCallback onPlayPause;
+  final ValueChanged<bool> onSeek;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool compact = layout == _PlayerLayout.compact;
+    final double playSize = compact ? 48 : 64;
+    final double seekSize = compact ? 32 : 40;
+    final double gap = compact ? 24 : 48;
+    return ListenableBuilder(
+      listenable: Listenable.merge(<Listenable>[
+        adapter.playback,
+        adapter.buffering,
+        adapter.quality,
+      ]),
+      builder: (_, __) {
+        final MdPlayerValue value = adapter.controller.value;
+        final bool playing = adapter.playback.value.playing;
+        final bool replay = !playing &&
+            value.duration > Duration.zero &&
+            value.position >= value.duration;
+        // The loading spinner takes the play button's place.
+        final bool loading =
+            adapter.buffering.value || adapter.quality.value.isSwitching;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          textDirection: TextDirection.ltr,
+          children: <Widget>[
+            _ControlButton(
+              size: seekSize,
+              icon: player.icons.seekBackward,
+              label: player.labels.seekBackward,
+              color: player.style.foreground,
+              onPressed: () => onSeek(false),
+            ),
+            SizedBox(width: gap),
+            SizedBox.square(
+              dimension: playSize + 16,
+              child: loading
+                  ? null
+                  : _ControlButton(
+                      size: playSize,
+                      icon: replay
+                          ? player.icons.replay
+                          : playing
+                              ? player.icons.pause
+                              : player.icons.play,
+                      label: replay
+                          ? player.labels.replay
+                          : playing
+                              ? player.labels.pause
+                              : player.labels.play,
+                      color: player.style.foreground,
+                      onPressed: onPlayPause,
+                    ),
+            ),
+            SizedBox(width: gap),
+            _ControlButton(
+              size: seekSize,
+              icon: player.icons.seekForward,
+              label: player.labels.seekForward,
+              color: player.style.foreground,
+              onPressed: () => onSeek(true),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 class _BottomBar extends StatelessWidget {
@@ -826,18 +949,14 @@ class _BottomBar extends StatelessWidget {
     required this.adapter,
     required this.configuration,
     required this.layout,
-    required this.onSettings,
     required this.onFullscreen,
-    required this.onLock,
   });
 
   final MdPlayer player;
   final _MdPlayerAdapter adapter;
   final MdPlayerControlsConfiguration configuration;
   final _PlayerLayout layout;
-  final VoidCallback onSettings;
   final VoidCallback onFullscreen;
-  final VoidCallback? onLock;
 
   bool get _hasFullscreen =>
       player.onFullscreenPressed != null ||
@@ -846,41 +965,22 @@ class _BottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+        padding: const EdgeInsets.only(left: 12, right: 4),
         child: Row(
+          textDirection: TextDirection.ltr,
           children: <Widget>[
             ValueListenableBuilder<_Timeline>(
               valueListenable: adapter.timeline,
               builder: (_, _Timeline value, __) => Text(
                 '${_format(value.position)} / ${_format(value.duration)}',
+                // Times read left to right in every locale.
+                textDirection: TextDirection.ltr,
                 style: TextStyle(color: player.style.foreground, fontSize: 12),
               ),
             ),
-            const Spacer(),
-            if (layout == _PlayerLayout.expanded)
-              _InlineSpeed(
-                player: player,
-                adapter: adapter,
-                options: configuration.speedOptions,
-              ),
-            if (layout != _PlayerLayout.compact &&
-                adapter.controller.value.qualities.isNotEmpty)
-              _InlineQuality(player: player, adapter: adapter),
             if (layout == _PlayerLayout.expanded && configuration.enableVolume)
               _VolumeButton(player: player, adapter: adapter),
-            _ControlButton(
-              icon: player.icons.settings,
-              label: player.labels.settings,
-              color: player.style.foreground,
-              onPressed: onSettings,
-            ),
-            if (onLock != null)
-              _ControlButton(
-                icon: player.icons.lock,
-                label: player.labels.lock,
-                color: player.style.foreground,
-                onPressed: onLock,
-              ),
+            const Spacer(),
             if (_hasFullscreen)
               _ControlButton(
                 icon: player.isFullscreen
@@ -891,8 +991,36 @@ class _BottomBar extends StatelessWidget {
                     : player.labels.fullscreen,
                 color: player.style.foreground,
                 onPressed: onFullscreen,
-              ),
+              )
+            else
+              const SizedBox(height: 48),
           ],
+        ),
+      );
+}
+
+class _Pill extends StatelessWidget {
+  const _Pill({
+    required this.style,
+    required this.child,
+    this.liveRegion = false,
+  });
+  final MdPlayerStyle style;
+  final Widget child;
+  final bool liveRegion;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        liveRegion: liveRegion,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: style.scrim,
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: child,
+          ),
         ),
       );
 }
@@ -947,6 +1075,7 @@ class _ProgressBarState extends State<_ProgressBar> {
           }
 
           return Semantics(
+            textDirection: TextDirection.ltr,
             label: widget.player.labels.progress,
             value: '${_format(shown)} / ${_format(timeline.duration)}',
             slider: true,
@@ -982,13 +1111,13 @@ class _ProgressBarState extends State<_ProgressBar> {
                       if (mounted) widget.onInteraction(null);
                     },
               child: SizedBox(
-                height: 48,
+                height: 32,
                 child: Stack(
                   alignment: Alignment.centerLeft,
                   children: <Widget>[
                     LinearProgressIndicator(
                       value: buffered,
-                      minHeight: 4,
+                      minHeight: 3,
                       backgroundColor: widget.player.style.progressBackground,
                       valueColor: AlwaysStoppedAnimation<Color>(
                         widget.player.style.buffered,
@@ -996,7 +1125,7 @@ class _ProgressBarState extends State<_ProgressBar> {
                     ),
                     LinearProgressIndicator(
                       value: played,
-                      minHeight: 4,
+                      minHeight: 3,
                       backgroundColor: Colors.transparent,
                       valueColor: AlwaysStoppedAnimation<Color>(
                         widget.player.style.accentFor(context),
@@ -1005,8 +1134,8 @@ class _ProgressBarState extends State<_ProgressBar> {
                     Align(
                       alignment: Alignment(played * 2 - 1, 0),
                       child: Container(
-                        width: 14,
-                        height: 14,
+                        width: 12,
+                        height: 12,
                         decoration: BoxDecoration(
                           color: widget.player.style.accentFor(context),
                           shape: BoxShape.circle,
@@ -1035,151 +1164,120 @@ class _ProgressBarState extends State<_ProgressBar> {
   }
 }
 
-class _SettingsPanel extends StatelessWidget {
-  const _SettingsPanel({
+enum _SettingsPage { main, quality, speed }
+
+/// Bottom sheet opened by the settings button: quality, speed, volume, lock.
+class _SettingsSheet extends StatefulWidget {
+  const _SettingsSheet({
     required this.player,
     required this.adapter,
     required this.configuration,
-    required this.failure,
+    required this.onLock,
   });
 
   final MdPlayer player;
   final _MdPlayerAdapter adapter;
   final MdPlayerControlsConfiguration configuration;
-  final String? failure;
+  final VoidCallback? onLock;
 
   @override
-  Widget build(BuildContext context) => Align(
-        alignment: Alignment.bottomCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 190, maxWidth: 560),
-          child: Material(
-            color: player.style.scrim,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(player.labels.speed,
-                      style: TextStyle(color: player.style.foreground)),
-                  _InlineSpeed(
-                    player: player,
-                    adapter: adapter,
-                    options: configuration.speedOptions,
-                  ),
-                  if (adapter
-                      .controller.value.qualities.isNotEmpty) ...<Widget>[
-                    Text(player.labels.quality,
-                        style: TextStyle(color: player.style.foreground)),
-                    _QualityChoices(player: player, adapter: adapter),
-                  ],
-                  if (configuration.enableVolume)
-                    _VolumeSlider(player: player, adapter: adapter),
-                  if (failure != null)
-                    Semantics(
-                      liveRegion: true,
-                      child: Text(failure!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          )),
-                    ),
-                ],
+  State<_SettingsSheet> createState() => _SettingsSheetState();
+}
+
+class _SettingsSheetState extends State<_SettingsSheet> {
+  _SettingsPage _page = _SettingsPage.main;
+
+  String _speedLabel(double speed) => speed == 1
+      ? widget.player.labels.normalSpeed
+      : '${speed == speed.roundToDouble() ? speed.toInt() : speed}x';
+
+  Widget _check(bool selected) =>
+      SizedBox(width: 24, child: selected ? const Icon(Icons.check) : null);
+
+  void _choose(VoidCallback action) {
+    action();
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final MdPlayerControlsLabels labels = widget.player.labels;
+    final MdPlayerControlsIcons icons = widget.player.icons;
+    final MdPlayerController controller = widget.adapter.controller;
+    Widget back(String title) => ListTile(
+          leading: const BackButtonIcon(),
+          title: Text(title),
+          onTap: () => setState(() => _page = _SettingsPage.main),
+        );
+    final List<Widget> rows = switch (_page) {
+      _SettingsPage.main => <Widget>[
+          if (controller.value.qualities.isNotEmpty)
+            ValueListenableBuilder<MdPlayerQuality?>(
+              valueListenable: widget.adapter.confirmedQuality,
+              builder: (_, MdPlayerQuality? quality, __) => ListTile(
+                leading: Icon(icons.quality),
+                title: Text(labels.quality),
+                trailing: Text(quality?.label ?? controller.value.qualityLabel),
+                onTap: () => setState(() => _page = _SettingsPage.quality),
               ),
             ),
-          ),
-        ),
-      );
-}
-
-class _InlineSpeed extends StatelessWidget {
-  const _InlineSpeed(
-      {required this.player, required this.adapter, required this.options});
-  final MdPlayer player;
-  final _MdPlayerAdapter adapter;
-  final List<double> options;
-
-  @override
-  Widget build(BuildContext context) => ValueListenableBuilder<_SpeedVolume>(
-        valueListenable: adapter.speedVolume,
-        builder: (_, _SpeedVolume value, __) => PopupMenuButton<double>(
-          tooltip: player.labels.speed,
-          initialValue: value.speed,
-          onSelected: adapter.controller.setPlaybackSpeed,
-          itemBuilder: (_) => <PopupMenuEntry<double>>[
-            for (final double speed in options)
-              PopupMenuItem<double>(value: speed, child: Text('${speed}x')),
-          ],
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text('${value.speed}x',
-                style: TextStyle(color: player.style.foreground)),
-          ),
-        ),
-      );
-}
-
-class _InlineQuality extends StatelessWidget {
-  const _InlineQuality({required this.player, required this.adapter});
-  final MdPlayer player;
-  final _MdPlayerAdapter adapter;
-
-  @override
-  Widget build(BuildContext context) =>
-      ValueListenableBuilder<MdPlayerQuality?>(
-        valueListenable: adapter.confirmedQuality,
-        builder: (_, MdPlayerQuality? quality, __) =>
-            PopupMenuButton<MdPlayerQuality>(
-          tooltip: player.labels.quality,
-          onSelected: adapter.controller.setQuality,
-          itemBuilder: (_) => <PopupMenuEntry<MdPlayerQuality>>[
-            for (final ({MdPlayerQuality quality, String label}) item
-                in _qualityItems(adapter.controller.value.qualities))
-              PopupMenuItem<MdPlayerQuality>(
-                value: item.quality,
-                child: Row(children: <Widget>[
-                  SizedBox(
-                    width: 24,
-                    child: identical(item.quality, quality)
-                        ? const Icon(Icons.check, size: 18)
-                        : null,
-                  ),
-                  Text(item.label),
-                ]),
-              ),
-          ],
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              quality?.label ?? adapter.controller.value.qualityLabel,
-              style: TextStyle(color: player.style.foreground),
+          ValueListenableBuilder<_SpeedVolume>(
+            valueListenable: widget.adapter.speedVolume,
+            builder: (_, _SpeedVolume value, __) => ListTile(
+              leading: Icon(icons.speed),
+              title: Text(labels.speed),
+              trailing: Text(_speedLabel(value.speed)),
+              onTap: () => setState(() => _page = _SettingsPage.speed),
             ),
           ),
-        ),
-      );
-}
-
-class _QualityChoices extends StatelessWidget {
-  const _QualityChoices({required this.player, required this.adapter});
-  final MdPlayer player;
-  final _MdPlayerAdapter adapter;
-
-  @override
-  Widget build(BuildContext context) =>
-      ValueListenableBuilder<MdPlayerQuality?>(
-        valueListenable: adapter.confirmedQuality,
-        builder: (_, MdPlayerQuality? selected, __) => Wrap(
-          spacing: 8,
-          children: <Widget>[
-            for (final ({MdPlayerQuality quality, String label}) item
-                in _qualityItems(adapter.controller.value.qualities))
-              ChoiceChip(
-                label: Text(item.label),
-                selected: identical(item.quality, selected),
-                onSelected: (_) => adapter.controller.setQuality(item.quality),
+          if (widget.configuration.enableVolume)
+            ListTile(
+              leading: Icon(icons.volume),
+              title:
+                  _VolumeSlider(player: widget.player, adapter: widget.adapter),
+            ),
+          if (widget.onLock != null)
+            ListTile(
+              leading: Icon(icons.lock),
+              title: Text(labels.lock),
+              onTap: () => _choose(widget.onLock!),
+            ),
+        ],
+      _SettingsPage.quality => <Widget>[
+          back(labels.quality),
+          const Divider(height: 1),
+          for (final ({MdPlayerQuality quality, String label}) item
+              in _qualityItems(controller.value.qualities))
+            ListTile(
+              leading: _check(
+                identical(item.quality, widget.adapter.confirmedQuality.value),
               ),
-          ],
-        ),
-      );
+              title: Text(item.label),
+              onTap: () => _choose(() => controller.setQuality(item.quality)),
+            ),
+        ],
+      _SettingsPage.speed => <Widget>[
+          back(labels.speed),
+          const Divider(height: 1),
+          for (final double speed in widget.configuration.speedOptions)
+            ListTile(
+              leading: _check(speed == widget.adapter.speedVolume.value.speed),
+              title: Text(_speedLabel(speed)),
+              onTap: () => _choose(() => controller.setPlaybackSpeed(speed)),
+            ),
+        ],
+    };
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+      ),
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.only(bottom: 8),
+        children: rows,
+      ),
+    );
+  }
 }
 
 class _VolumeButton extends StatelessWidget {
