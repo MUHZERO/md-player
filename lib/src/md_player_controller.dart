@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 import 'android_video_player.dart';
+import 'md_player_hls_bridge.dart';
 import 'md_player_source.dart';
 
 const Object _errorDescriptionNotProvided = Object();
@@ -175,9 +176,11 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     this.autoPlay = false,
     MdPlayerSourceResolver? resolver,
     @visibleForTesting VideoPlayerPlatform? platform,
+    @visibleForTesting MdPlayerHlsBridge? hlsBridge,
   })  : _resolver = resolver ?? MdPlayerSourceResolver(),
         _ownsResolver = resolver == null,
         _platform = platform ?? VideoPlayerPlatform.instance,
+        _hlsBridge = hlsBridge,
         super(const MdPlayerValue.uninitialized());
 
   /// Texture sentinel used before initialization and after release.
@@ -191,6 +194,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
   final MdPlayerSourceResolver _resolver;
   final bool _ownsResolver;
   final VideoPlayerPlatform _platform;
+  final MdPlayerHlsBridge? _hlsBridge;
 
   Timer? _positionTimer;
   StreamSubscription<MdPlayerPlatformEvent>? _events;
@@ -215,6 +219,8 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
   MdPlayerQuality? _requestedQuality;
   MdPlayerQuality? _confirmedQuality;
   double _lastNonzeroVolume = 1.0;
+  // Last play/pause intent; AVPlayer reports not-playing while it buffers.
+  bool _playRequested = false;
   String? _activeQualityOperationId;
 
   /// Quality operation state, including terminal native confirmation/rollback.
@@ -283,8 +289,21 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     Duration startAt = Duration.zero,
   }) async {
     if (!_isAndroid && source.audioUrl != null) {
-      throw UnsupportedError(
-        'Separate audio/video streams are only supported on Android',
+      // AVPlayer merges the pair as HLS with an alternate audio rendition.
+      final Future<String> merged =
+          (_hlsBridge ?? MdPlayerHlsBridge.instance).register(
+        videoUrl: source.videoUrl,
+        audioUrl: source.audioUrl!,
+        httpHeaders: source.httpHeaders,
+        audioHttpHeaders: source.audioHttpHeaders,
+      );
+      final (bool, String?) bridged =
+          await _raceCancellation(merged, operation);
+      if (bridged.$1) return false;
+      source = MdPlayerSource(
+        videoUrl: bridged.$2!,
+        formatHint: VideoFormat.hls,
+        qualityLabel: source.qualityLabel,
       );
     }
     final bool hasCacheMetadata = source.videoCacheKey != null ||
@@ -496,6 +515,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     final int textureId = _textureId;
     final int operation = _playerOperation;
     final int command = ++_playbackCommand;
+    _playRequested = true;
     value = value.copyWith(isPlaying: true);
     try {
       await _platform.play(textureId);
@@ -534,6 +554,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     final int textureId = _textureId;
     final int operation = _playerOperation;
     final int command = ++_playbackCommand;
+    _playRequested = false;
     _invalidatePosition();
     value = value.copyWith(isPlaying: false);
     try {
@@ -704,6 +725,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     final MdPlayerSource? previous = _source;
     final MdPlayerQuality? previousQuality = _confirmedQuality;
     final Duration position = value.position;
+    final bool resume = _playRequested;
     final String operationId = '$_textureId-${++_qualityOperationId}';
     final int operation = _beginPlayerOperation();
     _qualitySwitchState.value = MdQualitySwitchState(
@@ -720,6 +742,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
         startAt: position,
       );
       if (!created) return;
+      if (resume && !value.isPlaying) await play();
       _source = _sourceForQuality(quality);
       _confirmedQuality = quality;
       value = value.copyWith(qualityLabel: quality.label);
@@ -735,6 +758,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
       if (previous != null && _isCurrentOperation(operation)) {
         try {
           rolledBack = await _create(previous, operation, startAt: position);
+          if (rolledBack && resume && !value.isPlaying) await play();
           _confirmedQuality = previousQuality;
         } catch (_) {
           rolledBack = false;

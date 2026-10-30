@@ -21,7 +21,7 @@ For Flutter apps that stream lessons or long videos and need more control than t
 ![Media3](https://img.shields.io/badge/Media3-1.10.1-34A853?logo=android&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-API%2023%2B-34A853)
 ![iOS](https://img.shields.io/badge/iOS-AVFoundation-000000?logo=apple)
-![Tests](https://img.shields.io/badge/Dart%20tests-83-2EA44F)
+![Tests](https://img.shields.io/badge/Dart%20tests-86-2EA44F)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 </div>
@@ -46,15 +46,15 @@ kept for compatibility.
 | Platform | Engine | Support |
 | --- | --- | --- |
 | Android API 23+ | Media3 (this package's Java plugin) | Full feature set |
-| iOS | AVPlayer via `video_player_avfoundation` | Playback, controls, quality switching by re-opening |
+| iOS | AVPlayer via `video_player_avfoundation` | Playback, merged YouTube streams, quality switching by re-opening, controls |
 | macOS, web, Windows, Linux | — | Not implemented |
 
 | Feature | Android | iOS |
 | --- | --- | --- |
 | Progressive MP4, HLS | Yes | Yes |
 | DASH, SmoothStreaming, RTSP | Yes | No (AVPlayer limits) |
-| Separate video-only + audio-only streams | Yes (`MergingMediaSource`) | No; the resolver picks muxed streams |
-| YouTube | Adaptive streams first, then muxed, then HLS | HLS muxed first, then muxed progressive |
+| Separate video-only + audio-only streams | Yes (`MergingMediaSource`) | Yes (fragmented MP4 with `sidx`, merged as HLS) |
+| YouTube | Adaptive, then muxed, then HLS; all codecs | Same order; H.264 MP4 video and AAC MP4 audio only |
 | Quality switching | In place on the same player, first-frame confirmed | Player re-created at the current position, rollback on failure |
 | `MdPlayerCache` | Yes | No (throws `UnsupportedError`) |
 | Modern/legacy controls, fullscreen callbacks | Yes | Yes |
@@ -65,8 +65,9 @@ AndroidX Media3 1.10.1.
 ## Features
 
 - Media3 playback for progressive, HLS, DASH, SmoothStreaming, and RTSP sources
-- iOS playback through AVFoundation, with HLS-first source selection
-- Optional merged playback of separate video-only and audio-only streams (Android)
+- iOS playback through AVFoundation
+- Merged playback of separate video-only and audio-only streams (Media3 on
+  Android, an HLS alternate-audio playlist on iOS)
 - Race-safe controller initialization, commands, and asynchronous disposal
 - Same-player manual quality switching with first-frame confirmation and rollback (Android)
 - Bounded process-level Media3 cache, disabled by default (Android)
@@ -101,8 +102,18 @@ dependencies:
 
 On iOS, the endorsed `video_player_avfoundation` comes in as a dependency and
 Flutter registers it as the only iOS implementation; `flutter build ios` runs
-`pod install`. Network playback on Android
-also requires the normal internet permission:
+`pod install`. Merged streams on iOS are served to AVPlayer from
+`http://127.0.0.1`, so allow local networking in `ios/Runner/Info.plist`:
+
+```xml
+<key>NSAppTransportSecurity</key>
+<dict>
+  <key>NSAllowsLocalNetworking</key>
+  <true/>
+</dict>
+```
+
+Network playback on Android also requires the normal internet permission:
 
 ```xml
 <uses-permission android:name="android.permission.INTERNET" />
@@ -166,12 +177,18 @@ High-quality YouTube formats commonly use separate video-only and audio-only
 streams. On Android the controller passes both to one Media3 player through a
 `MergingMediaSource`.
 
-AVPlayer cannot merge separate streams, so on iOS the resolver never returns
-them: it prefers HLS muxed streams (audio and video in one stream; AVPlayer
-adapts the bitrate itself) and falls back to muxed progressive MP4. YouTube
-often exposes HLS only to some clients, so many videos resolve to a single
-360p muxed stream on iOS. Pass `MdPlayerSourceResolver(platform: ...)` to
-test either selection.
+On iOS, AVPlayer cannot open two progressive files as one item, and an
+`AVURLAsset` over a remote DASH-style MP4 downloads the whole file before it
+reports any track, so an `AVMutableComposition` is not usable either. The
+controller therefore reads each stream's `sidx` index (one small range
+request), writes byte-range HLS media playlists whose segments stay on the
+original URLs, and pairs them in a master playlist with the audio as an
+alternate rendition. The playlists are served from a loopback HTTP server
+because AVPlayer does not load HLS from `file:` URLs; AVPlayer then plays,
+buffers and seeks both streams itself. Custom HTTP headers are sent for the
+index requests only. Because AVPlayer cannot decode VP9, AV1 or Opus, the
+resolver offers only H.264 MP4 video and AAC MP4 audio there. Pass
+`MdPlayerSourceResolver(platform: ...)` to test either selection.
 
 YouTube stream URLs can expire, and availability depends on regional,
 age/account, format, and other video restrictions. Applications are
@@ -316,8 +333,9 @@ already be cached.
 
 ## Limitations
 
-- Android and iOS are the implemented platforms; iOS has no cache, no merged
-  separate streams, and switches quality by re-opening the player.
+- Android and iOS are the implemented platforms; iOS has no cache, merges only
+  fragmented MP4 streams that carry a `sidx` index, and switches quality by
+  re-opening the player.
 - DRM playback is not configured or validated.
 - Live-stream behavior is not part of the validated feature set.
 - YouTube and Vimeo extraction can break when provider responses change.

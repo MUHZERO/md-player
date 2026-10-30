@@ -224,9 +224,12 @@ void main() {
   group('YouTube source selection per platform', () {
     final StreamManifest manifest = StreamManifest(<StreamInfo>[
       _video(134, '360p', 'avc1.4d401e'),
+      _video(298, '720p', 'avc1.4d4020'),
+      _video(302, '720p', 'vp9', StreamContainer.webM),
+      _video(399, '1080p', 'av01.0.09M.08'),
+      _audio(251, StreamContainer.webM, 'opus', 160000),
       _audio(140, StreamContainer.mp4, 'mp4a.40.2', 130000),
       _muxed(18, '360p'),
-      _hls(96, '1080p'),
       _hls(93, '360p'),
     ]);
 
@@ -234,44 +237,42 @@ void main() {
         '${source.audioUrl == null ? 'single' : 'separate'}:'
         '${source.formatHint?.name ?? 'progressive'}:${source.qualityLabel}';
 
-    test('Android prefers merged adaptive streams', () {
+    test('Android keeps every codec for merged adaptive streams', () {
       final MdPlayerSourceResolver resolver =
           MdPlayerSourceResolver(platform: TargetPlatform.android);
+      final List<MdPlayerSource> candidates =
+          resolver.youtubeCandidates('aqz-KE-bpKQ', manifest);
+      expect(candidates.map(describe), <String>[
+        'separate:progressive:360p',
+        'single:progressive:360p',
+        'single:hls:360p',
+      ]);
       expect(
-        resolver.youtubeCandidates('aqz-KE-bpKQ', manifest).map(describe),
-        <String>[
-          'separate:progressive:360p',
-          'single:progressive:360p',
-          'single:hls:360p',
-        ],
+        candidates.first.qualities.map((MdPlayerQuality q) => q.label),
+        <String>['360p', '720p', '1080p'],
       );
       resolver.close();
     });
 
-    test('iOS gets HLS muxed first and never separate streams', () {
+    test('iOS offers only H.264 video with AAC audio', () {
       final MdPlayerSourceResolver resolver =
           MdPlayerSourceResolver(platform: TargetPlatform.iOS);
       final List<MdPlayerSource> candidates =
           resolver.youtubeCandidates('aqz-KE-bpKQ', manifest);
       expect(candidates.map(describe), <String>[
-        'single:hls:360p',
+        'separate:progressive:360p',
         'single:progressive:360p',
+        'single:hls:360p',
       ]);
       expect(
-        candidates.first.qualities.map((MdPlayerQuality quality) =>
-            '${quality.label}:${quality.videoFormatHint?.name}'),
-        <String>['360p:hls', '1080p:hls'],
-      );
-      expect(
-        candidates
-            .expand((MdPlayerSource source) => source.qualities)
-            .where((MdPlayerQuality quality) => quality.audioUrl != null),
-        isEmpty,
+        candidates.first.qualities.map(
+            (MdPlayerQuality q) => '${q.label}:${q.videoItag}:${q.audioItag}'),
+        <String>['360p:134:140', '720p:298:140'],
       );
       resolver.close();
     });
 
-    test('iOS falls back to muxed progressive without HLS', () {
+    test('iOS skips adaptive streams without AAC audio', () {
       final MdPlayerSourceResolver resolver =
           MdPlayerSourceResolver(platform: TargetPlatform.iOS);
       expect(
@@ -280,7 +281,7 @@ void main() {
               'aqz-KE-bpKQ',
               StreamManifest(<StreamInfo>[
                 _video(134, '360p', 'avc1.4d401e'),
-                _audio(140, StreamContainer.mp4, 'mp4a.40.2', 130000),
+                _audio(251, StreamContainer.webM, 'opus', 160000),
                 _muxed(18, '360p'),
               ]),
             )
@@ -337,9 +338,14 @@ Map<String, dynamic> _stream(
       'codec': mimeType,
     };
 
-VideoOnlyStreamInfo _video(int tag, String label, String codec) =>
+VideoOnlyStreamInfo _video(
+  int tag,
+  String label,
+  String codec, [
+  StreamContainer container = StreamContainer.mp4,
+]) =>
     VideoOnlyStreamInfo.fromJson(jsonDecode(jsonEncode(<String, dynamic>{
-      ..._stream(tag, StreamContainer.mp4, 'video/mp4; codecs="$codec"', 1),
+      ..._stream(tag, container, 'video/${container.name}; codecs="$codec"', 1),
       'videoCodec': codec,
       'qualityLabel': label,
       'videoQuality': 'unknown',

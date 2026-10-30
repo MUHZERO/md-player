@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:md_player_android/md_player_android.dart';
+import 'package:md_player_android/src/md_player_hls_bridge.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 /// A non-Android platform such as AVFoundation: standard API only.
@@ -11,11 +12,13 @@ class _ApplePlatform extends VideoPlayerPlatform {
   final Map<int, StreamController<VideoEvent>> events =
       <int, StreamController<VideoEvent>>{};
   final Set<String> failingUris = <String>{};
+  final List<VideoFormat?> formats = <VideoFormat?>[];
   int _next = 0;
 
   @override
   Future<int?> createWithOptions(VideoCreationOptions options) async {
     final String uri = options.dataSource.uri!;
+    formats.add(options.dataSource.formatHint);
     final int id = ++_next;
     log.add('create $id $uri');
     final StreamController<VideoEvent> controller =
@@ -59,6 +62,22 @@ class _ApplePlatform extends VideoPlayerPlatform {
 
   @override
   Future<Duration> getPosition(int playerId) async => Duration.zero;
+}
+
+class _Bridge extends MdPlayerHlsBridge {
+  _Bridge() : super(httpClient: null);
+  final List<(String, String)> pairs = <(String, String)>[];
+
+  @override
+  Future<String> register({
+    required String videoUrl,
+    required String audioUrl,
+    Map<String, String> httpHeaders = const <String, String>{},
+    Map<String, String>? audioHttpHeaders,
+  }) async {
+    pairs.add((videoUrl, audioUrl));
+    return 'http://127.0.0.1:1/${pairs.length}/master.m3u8';
+  }
 }
 
 class _Resolver extends MdPlayerSourceResolver {
@@ -135,17 +154,41 @@ void main() {
     await controller.dispose();
   });
 
-  test('non-Android players reject separate audio streams', () async {
+  test('non-Android players merge separate streams through HLS', () async {
+    final _ApplePlatform platform = _ApplePlatform();
+    final _Bridge bridge = _Bridge();
     final MdPlayerController controller = MdPlayerController.network(
       'video',
-      platform: _ApplePlatform(),
+      platform: platform,
+      hlsBridge: bridge,
       resolver: _Resolver(const MdPlayerSource(
-        videoUrl: 'video-only',
-        audioUrl: 'audio-only',
+        videoUrl: 'video-360',
+        audioUrl: 'audio',
+        qualityLabel: '360p',
+        qualities: <MdPlayerQuality>[
+          MdPlayerQuality(
+              label: '360p', videoUrl: 'video-360', audioUrl: 'audio'),
+          MdPlayerQuality(
+              label: '720p', videoUrl: 'video-720', audioUrl: 'audio'),
+        ],
       )),
     );
-    await expectLater(controller.initialize(), throwsUnsupportedError);
-    expect(controller.value.hasError, isTrue);
+    await controller.initialize();
+    expect(controller.value.isInitialized, isTrue);
+    await controller.setQuality(controller.value.qualities.last);
+
+    expect(bridge.pairs, <(String, String)>[
+      ('video-360', 'audio'),
+      ('video-720', 'audio'),
+    ]);
+    expect(
+        platform.log.where((String entry) => entry.startsWith('create')),
+        <String>[
+          'create 1 http://127.0.0.1:1/1/master.m3u8',
+          'create 2 http://127.0.0.1:1/2/master.m3u8',
+        ]);
+    expect(platform.formats, <VideoFormat?>[VideoFormat.hls, VideoFormat.hls]);
+    expect(controller.value.qualityLabel, '720p');
     await controller.dispose();
   });
 }

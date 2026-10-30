@@ -157,9 +157,10 @@ String mdPlayerYoutubeCacheKey(String videoId, String role, int itag) {
 
 /// Resolves direct, YouTube, and Vimeo URLs into playback sources.
 ///
-/// On Android, YouTube prefers separate adaptive video/audio streams that
-/// Media3 merges. Other platforms (iOS AVPlayer) cannot merge separate
-/// streams, so they get HLS muxed streams first, then muxed progressive ones.
+/// YouTube prefers separate adaptive video/audio streams (merged by Media3
+/// on Android and by AVPlayer through `MdPlayerHlsBridge` elsewhere), then
+/// muxed, then HLS. Outside Android only H.264 MP4 video and AAC MP4 audio
+/// are offered, because AVPlayer cannot decode VP9, AV1 or Opus.
 ///
 /// YouTube stream URLs can expire and provider restrictions may prevent
 /// resolution. Call [close] when a resolver is owned outside a controller.
@@ -176,8 +177,8 @@ class MdPlayerSourceResolver {
   final http.Client _httpClient;
   final TargetPlatform? _platform;
 
-  // Only Media3 merges a video-only stream with a separate audio stream.
-  bool get _mergesSeparateAudio =>
+  // Media3 decodes VP9/AV1/Opus; AVPlayer needs H.264 and AAC in MP4.
+  bool get _decodesAllCodecs =>
       (_platform ?? defaultTargetPlatform) == TargetPlatform.android;
   final Map<String, MdPlayerSource> _cache = <String, MdPlayerSource>{};
 
@@ -239,27 +240,35 @@ class MdPlayerSourceResolver {
   ///
   /// Adaptive streams allow quality switching, but YouTube may reject them
   /// with 403 for clients that need a PO token while muxed streams still
-  /// play, so each candidate is probed before use. Adaptive pairs are only
-  /// offered on Android; elsewhere HLS muxed streams come first.
+  /// play, so each candidate is probed before use. Outside Android only
+  /// H.264 video and AAC audio in MP4 are offered.
   @visibleForTesting
   List<MdPlayerSource> youtubeCandidates(
       String videoId, StreamManifest manifest) {
     final List<MdPlayerSource> candidates = <MdPlayerSource>[];
-    if (_mergesSeparateAudio &&
-        manifest.videoOnly.isNotEmpty &&
-        manifest.audioOnly.isNotEmpty) {
+    final List<VideoOnlyStreamInfo> videoOnly = manifest.videoOnly
+        .where((VideoOnlyStreamInfo stream) =>
+            _decodesAllCodecs ||
+            (stream.container == StreamContainer.mp4 &&
+                stream.videoCodec.startsWith('avc1')))
+        .toList();
+    final List<AudioOnlyStreamInfo> mp4Audio = manifest.audioOnly
+        .where((AudioOnlyStreamInfo stream) =>
+            stream.container == StreamContainer.mp4 &&
+            (_decodesAllCodecs || stream.audioCodec.startsWith('mp4a')))
+        .toList();
+    final List<AudioOnlyStreamInfo> audioOnly = mp4Audio.isNotEmpty
+        ? mp4Audio
+        : _decodesAllCodecs
+            ? manifest.audioOnly.toList()
+            : <AudioOnlyStreamInfo>[];
+    if (videoOnly.isNotEmpty && audioOnly.isNotEmpty) {
       // AAC in MP4 and H.264 decode on every Android device; VP9 and AV1
       // only cover labels without an H.264 stream.
-      final List<AudioOnlyStreamInfo> mp4Audio = manifest.audioOnly
-          .where((AudioOnlyStreamInfo stream) =>
-              stream.container == StreamContainer.mp4)
-          .toList();
-      final AudioOnlyStreamInfo audio =
-          (mp4Audio.isEmpty ? manifest.audioOnly : mp4Audio)
-              .withHighestBitrate();
+      final AudioOnlyStreamInfo audio = audioOnly.withHighestBitrate();
       final String audioUrl = audio.url.toString();
       final List<MdPlayerQuality> qualities = _uniqueQualities(
-        (manifest.videoOnly.toList()
+        (videoOnly
               ..sort((VideoOnlyStreamInfo a, VideoOnlyStreamInfo b) =>
                   _codecRank(a.videoCodec).compareTo(_codecRank(b.videoCodec))))
             .map(
@@ -332,18 +341,12 @@ class MdPlayerSourceResolver {
     );
     if (hlsQualities.isNotEmpty) {
       final MdPlayerQuality selected = _defaultQuality(hlsQualities);
-      final MdPlayerSource hls = MdPlayerSource(
+      candidates.add(MdPlayerSource(
         videoUrl: selected.videoUrl,
         formatHint: VideoFormat.hls,
         qualityLabel: selected.label,
         qualities: hlsQualities,
-      );
-      // AVPlayer plays HLS natively, so it beats 360p progressive there.
-      if (_mergesSeparateAudio) {
-        candidates.add(hls);
-      } else {
-        candidates.insert(0, hls);
-      }
+      ));
     }
 
     return candidates;
