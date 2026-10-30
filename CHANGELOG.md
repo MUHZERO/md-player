@@ -1,4 +1,27 @@
-## Unreleased
+## 2.8.0
+
+* Adds iOS support through AVFoundation: `video_player_avfoundation` is a
+  dependency, so Flutter registers it (Dart and native) as the iOS
+  implementation. Media3-only features
+  (merged separate streams, `MdPlayerCache`, in-place quality switching) stay
+  Android-only; on iOS `setQuality` re-creates the player at the current
+  position and rolls back on failure.
+* On platforms other than Android the source resolver never returns separate
+  video-only/audio-only pairs: YouTube prefers HLS muxed streams, then muxed
+  progressive. `MdPlayerSourceResolver` takes an optional `platform` for tests.
+* YouTube HLS qualities are de-duplicated, sorted, and carry the HLS format
+  hint.
+* Double-tap seeking shows a translucent ripple on the seek side with the
+  accumulated amount; further taps on that side while it shows seek again,
+  and the amount is announced to screen readers. Left is always backward and
+  right forward, in every text direction.
+* Taps between modern controls now reach the tap/double-tap detector instead
+  of being swallowed by the scrim, so double-tap seeking and hiding the
+  controls work while they are visible.
+* Adds `MdPlayerControlsConfiguration.controlsScale` (0.5–1.5, default 1.0)
+  for control icon sizes and center gaps; touch targets stay at least 44 px.
+* Adds `MdPlayerControlsLabels.seekFeedback` (`'{seconds} seconds'`).
+* Adds an iOS runner to the example app.
 
 * Adds race-safe controller initialization, playback commands, volume/mute,
   asynchronous disposal, and authoritative quality confirmation.

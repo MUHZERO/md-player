@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
@@ -10,7 +12,7 @@ import 'md_player_controls.dart';
 import 'md_player_debug.dart';
 import 'md_player_source.dart';
 
-/// Renders a stable Android video texture with legacy or modern Flutter controls.
+/// Renders a stable video texture with legacy or modern Flutter controls.
 ///
 /// Modern controls are opt-in. Fullscreen callbacks report intent to the host;
 /// this widget never changes routes, orientation, system UI, or activity state.
@@ -379,6 +381,11 @@ class _ModernControlsState extends State<_ModernControls> {
   bool _locked = false;
   bool _unlockShown = false;
   Timer? _unlockTimer;
+  // Double-tap seek ripple: side, accumulated amount, and visibility.
+  bool _rippleForward = true;
+  Duration _rippleAmount = Duration.zero;
+  bool _rippleShown = false;
+  Timer? _rippleTimer;
 
   bool get _shown => _visibility != _VisibilityState.hidden;
   bool get _settings => _visibility == _VisibilityState.settings;
@@ -411,6 +418,7 @@ class _ModernControlsState extends State<_ModernControls> {
     _feedbackTimer?.cancel();
     _failureTimer?.cancel();
     _unlockTimer?.cancel();
+    _rippleTimer?.cancel();
     // The sheet listens to the adapter, which is disposed with this player.
     final ModalBottomSheetRoute<void>? sheet = _sheet;
     if (sheet != null && sheet.isActive) {
@@ -548,7 +556,7 @@ class _ModernControlsState extends State<_ModernControls> {
     _scheduleHide();
   }
 
-  Future<void> _seekBy(Duration delta) async {
+  Future<void> _seekBy(Duration delta, {bool showTarget = true}) async {
     final MdPlayerValue value = widget.adapter.controller.value;
     if (value.duration <= Duration.zero) return;
     final Duration base = _requestedTarget ?? value.position;
@@ -556,7 +564,7 @@ class _ModernControlsState extends State<_ModernControls> {
     setState(() {
       _feedbackForward = delta > Duration.zero;
       _requestedTarget = target;
-      _feedbackTarget = target;
+      _feedbackTarget = showTarget ? target : null;
       _visibility = _VisibilityState.interacting;
     });
     _feedbackTimer?.cancel();
@@ -573,16 +581,57 @@ class _ModernControlsState extends State<_ModernControls> {
   }
 
   void _handleDoubleTap(BoxConstraints constraints) {
-    if (_settings || _locked || _dragPreview != null) return;
+    if (_settings || _locked || _dragPreview != null || _rippleShown) return;
     final double x = _doubleTapPosition?.dx ?? constraints.maxWidth / 2;
     if (x < constraints.maxWidth / 3) {
-      unawaited(_seekBy(-_configuration.seekInterval));
+      _rippleSeek(false);
     } else if (x > constraints.maxWidth * 2 / 3) {
-      unawaited(_seekBy(_configuration.seekInterval));
+      _rippleSeek(true);
     } else {
       unawaited(_togglePlayback());
     }
   }
+
+  // While the ripple shows, every tap on a side third seeks once more; the
+  // tap and double-tap callbacks then ignore those taps. Sides are physical:
+  // left is backward and right is forward in every text direction.
+  void _rippleTapDown(Offset position, BoxConstraints constraints) {
+    if (!_rippleShown || _settings || _locked) return;
+    if (position.dx < constraints.maxWidth / 3) {
+      _rippleSeek(false);
+    } else if (position.dx > constraints.maxWidth * 2 / 3) {
+      _rippleSeek(true);
+    }
+  }
+
+  void _rippleSeek(bool forward) {
+    final Duration interval = _configuration.seekInterval;
+    setState(() {
+      if (!_rippleShown || _rippleForward != forward) {
+        _rippleAmount = Duration.zero;
+      }
+      _rippleForward = forward;
+      _rippleAmount += interval;
+      _rippleShown = true;
+    });
+    _rippleTimer?.cancel();
+    _rippleTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _rippleShown = false);
+    });
+    final MdPlayerControlsLabels labels = widget.player.labels;
+    // ponytail: announce() is deprecated after Flutter 3.35 but its
+    // replacement does not exist on the 3.24 minimum; swap when it rises.
+    // ignore: deprecated_member_use
+    unawaited(SemanticsService.announce(
+      '${forward ? labels.seekForward : labels.seekBackward}, '
+      '${_rippleText()}',
+      Directionality.of(context),
+    ));
+    unawaited(_seekBy(forward ? interval : -interval, showTarget: false));
+  }
+
+  String _rippleText() => widget.player.labels.seekFeedback
+      .replaceAll('{seconds}', '${_rippleAmount.inSeconds}');
 
   void _fullscreen() {
     if (widget.player.isFullscreen) {
@@ -672,12 +721,19 @@ class _ModernControlsState extends State<_ModernControls> {
                 return Stack(
                   fit: StackFit.expand,
                   children: <Widget>[
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: _locked ? _flashUnlock : _toggleControls,
-                      onDoubleTapDown: (TapDownDetails details) =>
-                          _doubleTapPosition = details.localPosition,
-                      onDoubleTap: () => _handleDoubleTap(constraints),
+                    Listener(
+                      onPointerDown: (PointerDownEvent event) =>
+                          _rippleTapDown(event.localPosition, constraints),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          if (_rippleShown) return;
+                          _locked ? _flashUnlock() : _toggleControls();
+                        },
+                        onDoubleTapDown: (TapDownDetails details) =>
+                            _doubleTapPosition = details.localPosition,
+                        onDoubleTap: () => _handleDoubleTap(constraints),
+                      ),
                     ),
                     _StatusOverlays(
                         player: widget.player, adapter: widget.adapter),
@@ -686,6 +742,7 @@ class _ModernControlsState extends State<_ModernControls> {
                         child: Align(
                           alignment: AlignmentDirectional.centerStart,
                           child: _ControlButton(
+                            scale: _configuration.controlsScale,
                             icon: widget.player.icons.unlock,
                             label: widget.player.labels.unlock,
                             color: style.foreground,
@@ -698,73 +755,104 @@ class _ModernControlsState extends State<_ModernControls> {
                         widget.adapter.error.value == null)
                       IgnorePointer(
                         ignoring: _settings,
-                        child: ColoredBox(
-                          color: style.scrim,
-                          child: SafeArea(
-                            child: Stack(
-                              children: <Widget>[
-                                Align(
-                                  alignment: Alignment.topCenter,
-                                  child: _TopBar(
-                                    player: widget.player,
-                                    onSettings: _openSettings,
-                                  ),
-                                ),
-                                // The timeline, double-tap seeking and
-                                // seek buttons run left to right in
-                                // every locale.
-                                Center(
-                                  child: _CenterControls(
-                                    player: widget.player,
-                                    adapter: widget.adapter,
-                                    layout: layout,
-                                    onPlayPause: _togglePlayback,
-                                    onSeek: (bool forward) => unawaited(_seekBy(
-                                        forward
-                                            ? _configuration.seekInterval
-                                            : -_configuration.seekInterval)),
-                                  ),
-                                ),
-                                Align(
-                                  alignment: Alignment.bottomCenter,
-                                  child: Directionality(
-                                    textDirection: TextDirection.ltr,
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: <Widget>[
-                                        _BottomBar(
-                                          player: widget.player,
-                                          adapter: widget.adapter,
-                                          configuration: _configuration,
-                                          layout: layout,
-                                          onFullscreen: _fullscreen,
-                                        ),
-                                        _ProgressBar(
-                                          player: widget.player,
-                                          adapter: widget.adapter,
-                                          preview: _dragPreview,
-                                          onInteraction: (Duration? preview) {
-                                            setState(() {
-                                              _dragPreview = preview;
-                                              _visibility = preview == null
-                                                  ? _VisibilityState.visible
-                                                  : _VisibilityState
-                                                      .interacting;
-                                            });
-                                            if (preview == null) {
-                                              _scheduleHide();
-                                            }
-                                          },
-                                        ),
-                                      ],
+// The scrim ignores touches so taps between controls still
+                        // reach the tap and double-tap detector below.
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: <Widget>[
+                            IgnorePointer(
+                              child: ColoredBox(color: style.scrim),
+                            ),
+                            SafeArea(
+                              child: Stack(
+                                children: <Widget>[
+                                  Align(
+                                    alignment: Alignment.topCenter,
+                                    child: _TopBar(
+                                      player: widget.player,
+                                      onSettings: _openSettings,
                                     ),
                                   ),
-                                ),
-                              ],
+                                  // The timeline, double-tap seeking and
+                                  // seek buttons run left to right in
+                                  // every locale.
+                                  Center(
+                                    child: _CenterControls(
+                                      player: widget.player,
+                                      adapter: widget.adapter,
+                                      layout: layout,
+                                      onPlayPause: _togglePlayback,
+                                      onSeek: (bool forward) => unawaited(
+                                          _seekBy(forward
+                                              ? _configuration.seekInterval
+                                              : -_configuration.seekInterval)),
+                                    ),
+                                  ),
+                                  Align(
+                                    alignment: Alignment.bottomCenter,
+                                    child: Directionality(
+                                      textDirection: TextDirection.ltr,
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: <Widget>[
+                                          _BottomBar(
+                                            player: widget.player,
+                                            adapter: widget.adapter,
+                                            configuration: _configuration,
+                                            layout: layout,
+                                            onFullscreen: _fullscreen,
+                                          ),
+                                          _ProgressBar(
+                                            player: widget.player,
+                                            adapter: widget.adapter,
+                                            preview: _dragPreview,
+                                            onInteraction: (Duration? preview) {
+                                              setState(() {
+                                                _dragPreview = preview;
+                                                _visibility = preview == null
+                                                    ? _VisibilityState.visible
+                                                    : _VisibilityState
+                                                        .interacting;
+                                              });
+                                              if (preview == null) {
+                                                _scheduleHide();
+                                              }
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Positioned(
+                      top: 0,
+                      bottom: 0,
+                      left: _rippleForward ? null : 0,
+                      right: _rippleForward ? 0 : null,
+                      width: constraints.maxWidth / 3,
+                      child: IgnorePointer(
+                        child: ExcludeSemantics(
+                          child: AnimatedOpacity(
+                            opacity: _rippleShown ? 1 : 0,
+                            duration: _configuration.animationDuration,
+                            child: _SeekRipple(
+                              forward: _rippleForward,
+                              icon: _rippleForward
+                                  ? widget.player.icons.seekForward
+                                  : widget.player.icons.seekBackward,
+                              text: _rippleText(),
+                              color: style.foreground,
+                              scale: _configuration.controlsScale,
                             ),
                           ),
                         ),
                       ),
+                    ),
                     if (_feedbackTarget != null)
                       Align(
                         // Above the centered seek buttons, on the seek side.
@@ -847,6 +935,7 @@ class _TopBar extends StatelessWidget {
         children: <Widget>[
           if (player.onClose != null)
             _ControlButton(
+              scale: player._scale,
               icon: player.icons.close,
               label: player.labels.close,
               color: player.style.foreground,
@@ -885,6 +974,7 @@ class _TopBar extends StatelessWidget {
             const Spacer(),
           ...player.topActions,
           _ControlButton(
+            scale: player._scale,
             icon: player.icons.settings,
             label: player.labels.settings,
             color: player.style.foreground,
@@ -913,9 +1003,10 @@ class _CenterControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool compact = layout == _PlayerLayout.compact;
-    final double playSize = compact ? 48 : 64;
-    final double seekSize = compact ? 32 : 40;
-    final double gap = compact ? 24 : 48;
+    final double scale = player._scale;
+    final double playSize = (compact ? 48 : 64) * scale;
+    final double seekSize = (compact ? 32 : 40) * scale;
+    final double gap = (compact ? 24 : 48) * scale;
     return ListenableBuilder(
       listenable: Listenable.merge(<Listenable>[
         adapter.playback,
@@ -944,7 +1035,7 @@ class _CenterControls extends StatelessWidget {
             ),
             SizedBox(width: gap),
             SizedBox.square(
-              dimension: playSize + 16,
+              dimension: math.max(playSize + 16, _minTarget),
               child: loading
                   ? null
                   : _ControlButton(
@@ -1018,6 +1109,7 @@ class _BottomBar extends StatelessWidget {
             const Spacer(),
             if (_hasFullscreen)
               _ControlButton(
+                scale: player._scale,
                 icon: player.isFullscreen
                     ? player.icons.exitFullscreen
                     : player.icons.fullscreen,
@@ -1031,6 +1123,58 @@ class _BottomBar extends StatelessWidget {
               const SizedBox(height: 48),
           ],
         ),
+      );
+}
+
+const double _minTarget = 44;
+
+extension on MdPlayer {
+  double get _scale => controlsConfiguration?.controlsScale ?? 1.0;
+}
+
+/// Translucent half-ellipse on the seek side with the accumulated amount.
+class _SeekRipple extends StatelessWidget {
+  const _SeekRipple({
+    required this.forward,
+    required this.icon,
+    required this.text,
+    required this.color,
+    required this.scale,
+  });
+
+  final bool forward;
+  final IconData icon;
+  final String text;
+  final Color color;
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (_, BoxConstraints box) {
+          final Radius curve =
+              Radius.elliptical(box.maxWidth * 0.6, box.maxHeight);
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              color: color.withAlpha(46),
+              borderRadius: forward
+                  ? BorderRadius.horizontal(left: curve)
+                  : BorderRadius.horizontal(right: curve),
+            ),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(icon, color: color, size: 32 * scale),
+                  SizedBox(height: 4 * scale),
+                  Text(
+                    text,
+                    style: TextStyle(color: color, fontSize: 13 * scale),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       );
 }
 
@@ -1347,6 +1491,7 @@ class _VolumeButton extends StatelessWidget {
   Widget build(BuildContext context) => ValueListenableBuilder<_SpeedVolume>(
         valueListenable: adapter.speedVolume,
         builder: (_, _SpeedVolume value, __) => _ControlButton(
+          scale: player._scale,
           icon: value.volume == 0 ? player.icons.mute : player.icons.volume,
           label: value.volume == 0 ? player.labels.unmute : player.labels.mute,
           color: player.style.foreground,
@@ -1476,17 +1621,26 @@ class _ControlButton extends StatelessWidget {
     required this.color,
     required this.onPressed,
     this.size = 24,
+    this.scale = 1,
   });
   final IconData icon;
   final String label;
   final Color color;
   final VoidCallback? onPressed;
+
+  /// Icon size before [scale]; center buttons pass an already-scaled size.
   final double size;
+  final double scale;
 
   @override
   Widget build(BuildContext context) => IconButton(
         tooltip: label,
-        iconSize: size,
+        iconSize: size * scale,
+        // Shrunken icons keep a finger-sized touch target.
+        constraints: const BoxConstraints(
+          minWidth: _minTarget,
+          minHeight: _minTarget,
+        ),
         color: color,
         onPressed: onPressed,
         icon: Icon(icon, semanticLabel: label),

@@ -164,7 +164,7 @@ class MdPlayerValue {
   }
 }
 
-/// Race-safe owner of one resolved Android Media3 player.
+/// Race-safe owner of one resolved player (Media3 on Android, AVPlayer on iOS).
 ///
 /// Call [initialize] before playback and await [dispose] when cleanup ordering
 /// matters. The controller owns its default source resolver.
@@ -277,11 +277,20 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
   }
 
-  Future<bool> _create(MdPlayerSource source, int operation) async {
+  Future<bool> _create(
+    MdPlayerSource source,
+    int operation, {
+    Duration startAt = Duration.zero,
+  }) async {
+    if (!_isAndroid && source.audioUrl != null) {
+      throw UnsupportedError(
+        'Separate audio/video streams are only supported on Android',
+      );
+    }
     final bool hasCacheMetadata = source.videoCacheKey != null ||
         source.audioCacheKey != null ||
         source.videoStreamIdentity != null;
-    final Future<int?> creation = hasCacheMetadata
+    final Future<int?> creation = _isAndroid && hasCacheMetadata
         ? _androidPlatform.createMdSource(
             videoUri: source.videoUrl,
             audioUri: source.audioUrl,
@@ -343,7 +352,10 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
     }
 
     _textureId = textureId;
-    _events = _androidPlatform.playerEventsFor(textureId).listen(
+    final Stream<MdPlayerPlatformEvent> platformEvents = _isAndroid
+        ? _androidPlatform.playerEventsFor(textureId)
+        : _platform.videoEventsFor(textureId).map(MdPlayerPlatformEvent.video);
+    _events = platformEvents.listen(
       (MdPlayerPlatformEvent event) =>
           _handlePlatformEvent(event, operation, textureId, initialized),
       onError: (Object error) {
@@ -366,6 +378,9 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
       await _platform.setVolume(textureId, value.volume);
     } on PlatformException catch (error) {
       _setPlatformError(error, operation: operation, textureId: textureId);
+    }
+    if (startAt > Duration.zero && _isCurrentPlayer(operation, textureId)) {
+      await seekTo(startAt);
     }
     if (_isCurrentPlayer(operation, textureId) &&
         (autoPlay || value.isPlaying)) {
@@ -417,24 +432,7 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
       if (quality != null) {
         _confirmedQuality = quality;
         value = value.copyWith(qualityLabel: quality.label);
-        _source = MdPlayerSource(
-          videoUrl: quality.videoUrl,
-          audioUrl: quality.audioUrl,
-          formatHint: quality.videoFormatHint,
-          httpHeaders: quality.httpHeaders,
-          audioHttpHeaders: quality.audioHttpHeaders,
-          qualityLabel: quality.label,
-          qualities: _source?.qualities ?? const <MdPlayerQuality>[],
-          videoCacheKey: quality.videoCacheKey,
-          audioCacheKey: quality.audioCacheKey,
-          videoStreamIdentity: quality.videoStreamIdentity,
-          audioStreamIdentity: quality.audioStreamIdentity,
-          videoItag: quality.videoItag,
-          audioItag: quality.audioItag,
-          videoRole: quality.videoRole,
-          audioRole: quality.audioRole,
-          audioFormatHint: quality.audioFormatHint,
-        );
+        _source = _sourceForQuality(quality);
       }
     }
     final Completer<void>? completer = _qualitySwitchCompleter;
@@ -636,11 +634,17 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
 
   /// Starts a quality switch on the current player.
   ///
-  /// For compatibility, this future completes when Android accepts the
-  /// request. Observe [qualitySwitchState] for terminal success or failure.
+  /// On Android the native player swaps sources in place and this future
+  /// completes when Android accepts the request. On other platforms the
+  /// player is re-created at the current position and this future completes
+  /// when that finishes. Observe [qualitySwitchState] for terminal success or
+  /// failure in both cases.
   Future<void> setQuality(MdPlayerQuality quality) async {
     if (!_hasActivePlayer) {
       return;
+    }
+    if (!_isAndroid) {
+      return _reopenAtQuality(quality);
     }
     final int qualityCommand = ++_qualityCommand;
     final int textureId = _textureId;
@@ -693,6 +697,86 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
       }
     }
   }
+
+  // Non-Android players cannot swap sources in place: release the player and
+  // open [quality] at the current position, rolling back on failure.
+  Future<void> _reopenAtQuality(MdPlayerQuality quality) async {
+    final MdPlayerSource? previous = _source;
+    final MdPlayerQuality? previousQuality = _confirmedQuality;
+    final Duration position = value.position;
+    final String operationId = '$_textureId-${++_qualityOperationId}';
+    final int operation = _beginPlayerOperation();
+    _qualitySwitchState.value = MdQualitySwitchState(
+      status: MdQualitySwitchStatus.switching,
+      operationId: operationId,
+      requestedLabel: quality.label,
+    );
+    try {
+      await _releaseActivePlayer();
+      if (!_isCurrentOperation(operation)) return;
+      final bool created = await _create(
+        _sourceForQuality(quality),
+        operation,
+        startAt: position,
+      );
+      if (!created) return;
+      _source = _sourceForQuality(quality);
+      _confirmedQuality = quality;
+      value = value.copyWith(qualityLabel: quality.label);
+      _qualitySwitchState.value = MdQualitySwitchState(
+        status: MdQualitySwitchStatus.completed,
+        operationId: operationId,
+        requestedLabel: quality.label,
+      );
+    } catch (error) {
+      if (!_isCurrentOperation(operation)) return;
+      await _releaseActivePlayer(swallowErrors: true);
+      bool rolledBack = false;
+      if (previous != null && _isCurrentOperation(operation)) {
+        try {
+          rolledBack = await _create(previous, operation, startAt: position);
+          _confirmedQuality = previousQuality;
+        } catch (_) {
+          rolledBack = false;
+        }
+      }
+      if (!_isCurrentOperation(operation)) return;
+      // The failed player may have published its error; keep it only when
+      // the previous stream could not be restored either.
+      value = rolledBack
+          ? value.copyWith(errorDescription: null)
+          : value.copyWith(
+              isPlaying: false,
+              errorDescription: error.toString(),
+            );
+      _qualitySwitchState.value = MdQualitySwitchState(
+        status: MdQualitySwitchStatus.failed,
+        operationId: operationId,
+        requestedLabel: quality.label,
+        errorDescription: error.toString(),
+        rollbackSucceeded: rolledBack,
+      );
+    }
+  }
+
+  MdPlayerSource _sourceForQuality(MdPlayerQuality quality) => MdPlayerSource(
+        videoUrl: quality.videoUrl,
+        audioUrl: quality.audioUrl,
+        formatHint: quality.videoFormatHint,
+        httpHeaders: quality.httpHeaders,
+        audioHttpHeaders: quality.audioHttpHeaders,
+        qualityLabel: quality.label,
+        qualities: _source?.qualities ?? const <MdPlayerQuality>[],
+        videoCacheKey: quality.videoCacheKey,
+        audioCacheKey: quality.audioCacheKey,
+        videoStreamIdentity: quality.videoStreamIdentity,
+        audioStreamIdentity: quality.audioStreamIdentity,
+        videoItag: quality.videoItag,
+        audioItag: quality.audioItag,
+        videoRole: quality.videoRole,
+        audioRole: quality.audioRole,
+        audioFormatHint: quality.audioFormatHint,
+      );
 
   /// Releases listeners and the native player.
   ///
@@ -856,8 +940,11 @@ class MdPlayerController extends ValueNotifier<MdPlayerValue> {
       _textureId != kUninitializedTextureId &&
       value.isInitialized;
 
-  MdPlayerAndroid get _androidPlatform =>
-      _platform is MdPlayerAndroid ? _platform : MdPlayerAndroid();
+  // Media3-only APIs (merged audio, caching, in-place quality switching) are
+  // used only when the platform is this package's Android implementation.
+  bool get _isAndroid => _platform is MdPlayerAndroid;
+
+  MdPlayerAndroid get _androidPlatform => _platform as MdPlayerAndroid;
 
   bool _isCurrentOperation(int operation) =>
       !_isDisposed && operation == _playerOperation;

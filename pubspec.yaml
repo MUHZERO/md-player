@@ -1,8 +1,8 @@
 name: md_player_android
-description: Android Flutter video player with Media3 playback, manual quality switching, optional caching, and opt-in modern controls.
+description: Flutter video player for Android (Media3, merged YouTube streams, quality switching, caching) and iOS (AVFoundation via video_player_avfoundation), with opt-in modern controls.
 repository: https://github.com/MUHZERO/md-player
 issue_tracker: https://github.com/MUHZERO/md-player/issues
-version: 2.7.3
+version: 2.8.0
 
 environment:
   sdk: ^3.5.0
@@ -22,6 +22,10 @@ dependencies:
     sdk: flutter
   http: ^1.6.0
   meta: ^1.12.0
+  # iOS implementation of video_player. Not declared as an iOS platform
+  # here on purpose: being the only iOS candidate, Flutter registers both its
+  # Dart class and its native AVPlayer plugin.
+  video_player_avfoundation: ^2.9.4
   video_player_platform_interface: ">=6.1.0 <7.0.0"
   youtube_explode_dart: ^3.1.0
 
@@ -34,4 +38,5 @@ topics:
   - video
   - video-player
   - media3
+  - avfoundation
   - youtube

@@ -288,6 +288,155 @@ void main() {
     await controller.dispose().timeout(const Duration(seconds: 2));
   });
 
+  testWidgets('double-tap seek shows an accumulating side ripple',
+      (WidgetTester tester) async {
+    final _Platform platform = _Platform();
+    VideoPlayerPlatform.instance = platform;
+    final MdPlayerController controller = _controller(platform);
+    final List<String> announcements = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockDecodedMessageHandler<dynamic>(
+      SystemChannels.accessibility,
+      (dynamic message) async {
+        final Map<dynamic, dynamic> event = message as Map<dynamic, dynamic>;
+        if (event['type'] == 'announce') {
+          announcements.add(
+              (event['data'] as Map<dynamic, dynamic>)['message'] as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<dynamic>(
+            SystemChannels.accessibility, null));
+
+    // RTL host: left still seeks backward and right forward.
+    await tester.pumpWidget(Directionality(
+      textDirection: TextDirection.rtl,
+      child: _host(MdPlayer(
+        controller: controller,
+        controlsMode: MdPlayerControlsMode.modern,
+        controlsConfiguration: MdPlayerControlsConfiguration(
+          seekInterval: const Duration(seconds: 5),
+        ),
+      )),
+    ));
+    final Rect player = tester.getRect(find.byType(MdPlayer));
+    final Offset right = player.centerRight - const Offset(60, 0);
+    final Offset left = player.centerLeft + const Offset(60, 0);
+    double opacity() => tester
+        .widget<AnimatedOpacity>(find.ancestor(
+          of: find.byType(Icon).last,
+          matching: find.byType(AnimatedOpacity),
+        ))
+        .opacity;
+
+    await tester.tapAt(right);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tapAt(right);
+    await tester.pump();
+    expect(find.text('5 seconds'), findsOneWidget);
+    expect(opacity(), 1);
+
+    // Single taps on the same side while the ripple shows accumulate.
+    await tester.tapAt(right);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(right);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('15 seconds'), findsOneWidget);
+    expect(announcements.last, 'Seek forward, 15 seconds');
+
+    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pumpAndSettle();
+    expect(opacity(), 0);
+
+    await tester.tapAt(left);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tapAt(left);
+    await tester.pump();
+    expect(find.text('5 seconds'), findsOneWidget);
+    expect(announcements.last, 'Seek backward, 5 seconds');
+    final Rect ripple = tester.getRect(find.ancestor(
+      of: find.text('5 seconds'),
+      matching: find.byType(AnimatedOpacity),
+    ));
+    expect(ripple.left, player.left);
+    await tester.pumpAndSettle(const Duration(seconds: 4));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await controller.dispose().timeout(const Duration(seconds: 2));
+  });
+
+  testWidgets('seek feedback uses the host label', (WidgetTester tester) async {
+    final _Platform platform = _Platform();
+    VideoPlayerPlatform.instance = platform;
+    final MdPlayerController controller = _controller(platform);
+
+    await tester.pumpWidget(_host(MdPlayer(
+      controller: controller,
+      controlsMode: MdPlayerControlsMode.modern,
+      labels: const MdPlayerControlsLabels(seekFeedback: '{seconds} s'),
+    )));
+    final Offset right =
+        tester.getRect(find.byType(MdPlayer)).centerRight - const Offset(60, 0);
+    await tester.tapAt(right);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tapAt(right);
+    await tester.pump();
+    expect(find.text('10 s'), findsOneWidget);
+    await tester.pumpAndSettle(const Duration(seconds: 4));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await controller.dispose().timeout(const Duration(seconds: 2));
+  });
+
+  testWidgets('controlsScale shrinks icons but keeps 44px targets',
+      (WidgetTester tester) async {
+    final _Platform platform = _Platform();
+    VideoPlayerPlatform.instance = platform;
+    final MdPlayerController controller = _controller(platform);
+
+    Future<void> pumpScale(double scale) => tester.pumpWidget(_host(MdPlayer(
+          controller: controller,
+          controlsMode: MdPlayerControlsMode.modern,
+          controlsConfiguration:
+              MdPlayerControlsConfiguration(controlsScale: scale),
+        )));
+
+    await pumpScale(1);
+    final double fullPlay = tester
+        .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.play_arrow))
+        .iconSize!;
+    await pumpScale(0.5);
+    expect(
+      tester
+          .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.play_arrow))
+          .iconSize,
+      fullPlay / 2,
+    );
+    expect(
+      tester
+          .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.settings))
+          .iconSize,
+      12,
+    );
+    for (final Element button in find.byType(IconButton).evaluate()) {
+      final Size size = tester.getSize(find.byWidget(button.widget));
+      expect(size.width, greaterThanOrEqualTo(44));
+      expect(size.height, greaterThanOrEqualTo(44));
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+    await controller.dispose().timeout(const Duration(seconds: 2));
+  });
+
+  test('controlsScale rejects values outside 0.5 to 1.5', () {
+    expect(MdPlayerControlsConfiguration().controlsScale, 1.0);
+    for (final double scale in <double>[0.49, 1.51, double.nan]) {
+      expect(
+        () => MdPlayerControlsConfiguration(controlsScale: scale),
+        throwsArgumentError,
+      );
+    }
+  });
+
   test('speed options reject unsafe consumer input', () {
     expect(
       () => MdPlayerControlsConfiguration(speedOptions: <double>[1, 1]),

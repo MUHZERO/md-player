@@ -1,7 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:meta/meta.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
@@ -155,7 +155,11 @@ String mdPlayerYoutubeCacheKey(String videoId, String role, int itag) {
   return 'md-player:youtube:$encoded:$role:$itag';
 }
 
-/// Resolves direct, YouTube, and Vimeo URLs into Media3 playback sources.
+/// Resolves direct, YouTube, and Vimeo URLs into playback sources.
+///
+/// On Android, YouTube prefers separate adaptive video/audio streams that
+/// Media3 merges. Other platforms (iOS AVPlayer) cannot merge separate
+/// streams, so they get HLS muxed streams first, then muxed progressive ones.
 ///
 /// YouTube stream URLs can expire and provider restrictions may prevent
 /// resolution. Call [close] when a resolver is owned outside a controller.
@@ -163,11 +167,18 @@ class MdPlayerSourceResolver {
   /// Creates a resolver.
   ///
   /// When [httpClient] is supplied, ownership is transferred and [close]
-  /// closes it.
-  MdPlayerSourceResolver({http.Client? httpClient})
-      : _httpClient = httpClient ?? http.Client();
+  /// closes it. [platform] overrides [defaultTargetPlatform] for source
+  /// selection, mainly in tests.
+  MdPlayerSourceResolver({http.Client? httpClient, TargetPlatform? platform})
+      : _httpClient = httpClient ?? http.Client(),
+        _platform = platform;
 
   final http.Client _httpClient;
+  final TargetPlatform? _platform;
+
+  // Only Media3 merges a video-only stream with a separate audio stream.
+  bool get _mergesSeparateAudio =>
+      (_platform ?? defaultTargetPlatform) == TargetPlatform.android;
   final Map<String, MdPlayerSource> _cache = <String, MdPlayerSource>{};
 
   /// Resolves [input], caching the result for this resolver's lifetime.
@@ -228,12 +239,15 @@ class MdPlayerSourceResolver {
   ///
   /// Adaptive streams allow quality switching, but YouTube may reject them
   /// with 403 for clients that need a PO token while muxed streams still
-  /// play, so each candidate is probed before use.
+  /// play, so each candidate is probed before use. Adaptive pairs are only
+  /// offered on Android; elsewhere HLS muxed streams come first.
   @visibleForTesting
   List<MdPlayerSource> youtubeCandidates(
       String videoId, StreamManifest manifest) {
     final List<MdPlayerSource> candidates = <MdPlayerSource>[];
-    if (manifest.videoOnly.isNotEmpty && manifest.audioOnly.isNotEmpty) {
+    if (_mergesSeparateAudio &&
+        manifest.videoOnly.isNotEmpty &&
+        manifest.audioOnly.isNotEmpty) {
       // AAC in MP4 and H.264 decode on every Android device; VP9 and AV1
       // only cover labels without an H.264 stream.
       final List<AudioOnlyStreamInfo> mp4Audio = manifest.audioOnly
@@ -307,22 +321,29 @@ class MdPlayerSourceResolver {
       ));
     }
 
-    final List<MdPlayerQuality> hlsQualities = <MdPlayerQuality>[];
-    for (final HlsMuxedStreamInfo stream
-        in manifest.hls.whereType<HlsMuxedStreamInfo>()) {
-      hlsQualities.add(MdPlayerQuality(
-        label: stream.qualityLabel,
-        videoUrl: stream.url.toString(),
-      ));
-    }
+    final List<MdPlayerQuality> hlsQualities = _uniqueQualities(
+      manifest.hls.whereType<HlsMuxedStreamInfo>().map(
+            (HlsMuxedStreamInfo stream) => MdPlayerQuality(
+              label: stream.qualityLabel,
+              videoUrl: stream.url.toString(),
+              videoFormatHint: VideoFormat.hls,
+            ),
+          ),
+    );
     if (hlsQualities.isNotEmpty) {
       final MdPlayerQuality selected = _defaultQuality(hlsQualities);
-      candidates.add(MdPlayerSource(
+      final MdPlayerSource hls = MdPlayerSource(
         videoUrl: selected.videoUrl,
         formatHint: VideoFormat.hls,
         qualityLabel: selected.label,
         qualities: hlsQualities,
-      ));
+      );
+      // AVPlayer plays HLS natively, so it beats 360p progressive there.
+      if (_mergesSeparateAudio) {
+        candidates.add(hls);
+      } else {
+        candidates.insert(0, hls);
+      }
     }
 
     return candidates;

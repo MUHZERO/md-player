@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http_parser/http_parser.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:md_player_android/md_player_android.dart';
@@ -219,7 +221,104 @@ void main() {
     );
     resolver.close();
   });
+  group('YouTube source selection per platform', () {
+    final StreamManifest manifest = StreamManifest(<StreamInfo>[
+      _video(134, '360p', 'avc1.4d401e'),
+      _audio(140, StreamContainer.mp4, 'mp4a.40.2', 130000),
+      _muxed(18, '360p'),
+      _hls(96, '1080p'),
+      _hls(93, '360p'),
+    ]);
+
+    String describe(MdPlayerSource source) =>
+        '${source.audioUrl == null ? 'single' : 'separate'}:'
+        '${source.formatHint?.name ?? 'progressive'}:${source.qualityLabel}';
+
+    test('Android prefers merged adaptive streams', () {
+      final MdPlayerSourceResolver resolver =
+          MdPlayerSourceResolver(platform: TargetPlatform.android);
+      expect(
+        resolver.youtubeCandidates('aqz-KE-bpKQ', manifest).map(describe),
+        <String>[
+          'separate:progressive:360p',
+          'single:progressive:360p',
+          'single:hls:360p',
+        ],
+      );
+      resolver.close();
+    });
+
+    test('iOS gets HLS muxed first and never separate streams', () {
+      final MdPlayerSourceResolver resolver =
+          MdPlayerSourceResolver(platform: TargetPlatform.iOS);
+      final List<MdPlayerSource> candidates =
+          resolver.youtubeCandidates('aqz-KE-bpKQ', manifest);
+      expect(candidates.map(describe), <String>[
+        'single:hls:360p',
+        'single:progressive:360p',
+      ]);
+      expect(
+        candidates.first.qualities.map((MdPlayerQuality quality) =>
+            '${quality.label}:${quality.videoFormatHint?.name}'),
+        <String>['360p:hls', '1080p:hls'],
+      );
+      expect(
+        candidates
+            .expand((MdPlayerSource source) => source.qualities)
+            .where((MdPlayerQuality quality) => quality.audioUrl != null),
+        isEmpty,
+      );
+      resolver.close();
+    });
+
+    test('iOS falls back to muxed progressive without HLS', () {
+      final MdPlayerSourceResolver resolver =
+          MdPlayerSourceResolver(platform: TargetPlatform.iOS);
+      expect(
+        resolver
+            .youtubeCandidates(
+              'aqz-KE-bpKQ',
+              StreamManifest(<StreamInfo>[
+                _video(134, '360p', 'avc1.4d401e'),
+                _audio(140, StreamContainer.mp4, 'mp4a.40.2', 130000),
+                _muxed(18, '360p'),
+              ]),
+            )
+            .map(describe),
+        <String>['single:progressive:360p'],
+      );
+      resolver.close();
+    });
+  });
 }
+
+MuxedStreamInfo _muxed(int tag, String label) =>
+    MuxedStreamInfo.fromJson(jsonDecode(jsonEncode(<String, dynamic>{
+      ..._stream(tag, StreamContainer.mp4,
+          'video/mp4; codecs="avc1.42001E, mp4a.40.2"', 1),
+      'audioCodec': 'mp4a.40.2',
+      'videoCodec': 'avc1.42001E',
+      'qualityLabel': label,
+      'videoQuality': 'unknown',
+      'videoResolution': const VideoResolution(640, 360),
+      'framerate': const Framerate(30),
+    })) as Map<String, dynamic>);
+
+HlsMuxedStreamInfo _hls(int tag, String label) => HlsMuxedStreamInfo(
+      VideoId('aqz-KE-bpKQ'),
+      tag,
+      Uri.parse('https://g.test/hls/$tag.m3u8'),
+      StreamContainer.mp4,
+      const FileSize(0),
+      const Bitrate(1),
+      'mp4a.40.2',
+      'avc1.4d401f',
+      label,
+      VideoQuality.unknown,
+      const VideoResolution(1920, 1080),
+      const Framerate(30),
+      MediaType('application', 'x-mpegURL'),
+    );
 
 Map<String, dynamic> _stream(
   int tag,

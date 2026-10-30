@@ -47,6 +47,7 @@ class MdPlayerControlsConfiguration {
   /// Creates a modern-controls configuration.
   ///
   /// [speedOptions] must contain unique, positive, finite values.
+  /// [controlsScale] must be between 0.5 and 1.5.
   MdPlayerControlsConfiguration({
     this.animationDuration = const Duration(milliseconds: 180),
     this.hideDelay = const Duration(seconds: 3),
@@ -55,7 +56,9 @@ class MdPlayerControlsConfiguration {
     this.enableVolume = false,
     this.enableLock = true,
     List<double> speedOptions = const <double>[0.5, 1, 1.25, 1.5, 2],
-  }) : speedOptions = _validateSpeeds(speedOptions);
+    double controlsScale = 1.0,
+  })  : speedOptions = _validateSpeeds(speedOptions),
+        controlsScale = _validateScale(controlsScale);
 
   /// Duration of control fades and scales.
   final Duration animationDuration;
@@ -63,7 +66,11 @@ class MdPlayerControlsConfiguration {
   /// Delay before controls hide while playback is active.
   final Duration hideDelay;
 
-  /// Distance used by keyboard and double-tap seeking.
+  /// Distance used by keyboard, button, and double-tap seeking.
+  ///
+  /// Double-tapping the left third of the player seeks backward and the right
+  /// third seeks forward, in every text direction. Further taps on the same
+  /// side while the feedback shows add one more interval each.
   final Duration seekInterval;
 
   /// Whether shortcuts are active while the player owns focus.
@@ -77,6 +84,21 @@ class MdPlayerControlsConfiguration {
 
   /// Ordered playback speeds shown to the user.
   final List<double> speedOptions;
+
+  /// Multiplier for control icon sizes and the gaps between centered
+  /// controls. Touch targets stay at least 44 logical pixels.
+  final double controlsScale;
+
+  static double _validateScale(double value) {
+    if (!value.isFinite || value < 0.5 || value > 1.5) {
+      throw ArgumentError.value(
+        value,
+        'controlsScale',
+        'must be between 0.5 and 1.5',
+      );
+    }
+    return value;
+  }
 
   static List<double> _validateSpeeds(List<double> values) {
     if (values.isEmpty ||
@@ -124,6 +146,7 @@ class MdPlayerControlsLabels {
     this.qualityFailed = 'Could not change quality',
     this.error = 'Video could not be played',
     this.retry = 'Retry',
+    this.seekFeedback = '{seconds} seconds',
   });
 
   /// Play action label.
@@ -197,6 +220,10 @@ class MdPlayerControlsLabels {
 
   /// Retry action label.
   final String retry;
+
+  /// Amount shown and announced during double-tap seeking. `{seconds}` is
+  /// replaced by the accumulated number of seconds.
+  final String seekFeedback;
 }
 
 /// Icons used by the opt-in modern controls.
