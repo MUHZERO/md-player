@@ -1,4 +1,30 @@
-## Unreleased
+## 2.8.0
+
+* Adds iOS support through AVFoundation: `video_player_avfoundation` is a
+  dependency, so Flutter registers it (Dart and native) as the iOS
+  implementation. `MdPlayerCache` and in-place quality switching stay
+  Android-only; on iOS `setQuality` re-creates the player at the current
+  position, resumes playback, and rolls back on failure.
+* Merges separate video-only and audio-only streams on iOS: each stream's
+  `sidx` index becomes a byte-range HLS playlist, paired in a master playlist
+  with the audio as an alternate rendition and served from 127.0.0.1
+  (`NSAllowsLocalNetworking` is required).
+* Outside Android the resolver offers only H.264 MP4 video and AAC MP4 audio.
+  `MdPlayerSourceResolver` takes an optional `platform` for tests.
+* YouTube HLS qualities are de-duplicated, sorted, and carry the HLS format
+  hint.
+* Double-tap seeking shows a translucent ripple on the seek side with the
+  accumulated amount; further taps on that side while it shows seek again,
+  and the amount is announced to screen readers. Left is always backward and
+  right forward, in every text direction.
+* Taps between modern controls now reach the tap/double-tap detector instead
+  of being swallowed by the scrim, so double-tap seeking and hiding the
+  controls work while they are visible.
+* Adds `MdPlayerControlsConfiguration.controlsScale` (0.5–1.5, default 1.0)
+  for control icon sizes and center gaps; touch targets stay at least 44 px.
+* Adds `MdPlayerControlsLabels.seekFeedback` (`'{seconds} seconds'`).
+* Adds an iOS runner to the example app and a network-dependent iOS
+  integration test for merged YouTube playback, seeking and quality switching.
 
 * Adds race-safe controller initialization, playback commands, volume/mute,
   asynchronous disposal, and authoritative quality confirmation.

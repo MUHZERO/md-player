@@ -1,7 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:meta/meta.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
@@ -155,7 +155,12 @@ String mdPlayerYoutubeCacheKey(String videoId, String role, int itag) {
   return 'md-player:youtube:$encoded:$role:$itag';
 }
 
-/// Resolves direct, YouTube, and Vimeo URLs into Media3 playback sources.
+/// Resolves direct, YouTube, and Vimeo URLs into playback sources.
+///
+/// YouTube prefers separate adaptive video/audio streams (merged by Media3
+/// on Android and by AVPlayer through `MdPlayerHlsBridge` elsewhere), then
+/// muxed, then HLS. Outside Android only H.264 MP4 video and AAC MP4 audio
+/// are offered, because AVPlayer cannot decode VP9, AV1 or Opus.
 ///
 /// YouTube stream URLs can expire and provider restrictions may prevent
 /// resolution. Call [close] when a resolver is owned outside a controller.
@@ -163,11 +168,18 @@ class MdPlayerSourceResolver {
   /// Creates a resolver.
   ///
   /// When [httpClient] is supplied, ownership is transferred and [close]
-  /// closes it.
-  MdPlayerSourceResolver({http.Client? httpClient})
-      : _httpClient = httpClient ?? http.Client();
+  /// closes it. [platform] overrides [defaultTargetPlatform] for source
+  /// selection, mainly in tests.
+  MdPlayerSourceResolver({http.Client? httpClient, TargetPlatform? platform})
+      : _httpClient = httpClient ?? http.Client(),
+        _platform = platform;
 
   final http.Client _httpClient;
+  final TargetPlatform? _platform;
+
+  // Media3 decodes VP9/AV1/Opus; AVPlayer needs H.264 and AAC in MP4.
+  bool get _decodesAllCodecs =>
+      (_platform ?? defaultTargetPlatform) == TargetPlatform.android;
   final Map<String, MdPlayerSource> _cache = <String, MdPlayerSource>{};
 
   /// Resolves [input], caching the result for this resolver's lifetime.
@@ -228,24 +240,35 @@ class MdPlayerSourceResolver {
   ///
   /// Adaptive streams allow quality switching, but YouTube may reject them
   /// with 403 for clients that need a PO token while muxed streams still
-  /// play, so each candidate is probed before use.
+  /// play, so each candidate is probed before use. Outside Android only
+  /// H.264 video and AAC audio in MP4 are offered.
   @visibleForTesting
   List<MdPlayerSource> youtubeCandidates(
       String videoId, StreamManifest manifest) {
     final List<MdPlayerSource> candidates = <MdPlayerSource>[];
-    if (manifest.videoOnly.isNotEmpty && manifest.audioOnly.isNotEmpty) {
+    final List<VideoOnlyStreamInfo> videoOnly = manifest.videoOnly
+        .where((VideoOnlyStreamInfo stream) =>
+            _decodesAllCodecs ||
+            (stream.container == StreamContainer.mp4 &&
+                stream.videoCodec.startsWith('avc1')))
+        .toList();
+    final List<AudioOnlyStreamInfo> mp4Audio = manifest.audioOnly
+        .where((AudioOnlyStreamInfo stream) =>
+            stream.container == StreamContainer.mp4 &&
+            (_decodesAllCodecs || stream.audioCodec.startsWith('mp4a')))
+        .toList();
+    final List<AudioOnlyStreamInfo> audioOnly = mp4Audio.isNotEmpty
+        ? mp4Audio
+        : _decodesAllCodecs
+            ? manifest.audioOnly.toList()
+            : <AudioOnlyStreamInfo>[];
+    if (videoOnly.isNotEmpty && audioOnly.isNotEmpty) {
       // AAC in MP4 and H.264 decode on every Android device; VP9 and AV1
       // only cover labels without an H.264 stream.
-      final List<AudioOnlyStreamInfo> mp4Audio = manifest.audioOnly
-          .where((AudioOnlyStreamInfo stream) =>
-              stream.container == StreamContainer.mp4)
-          .toList();
-      final AudioOnlyStreamInfo audio =
-          (mp4Audio.isEmpty ? manifest.audioOnly : mp4Audio)
-              .withHighestBitrate();
+      final AudioOnlyStreamInfo audio = audioOnly.withHighestBitrate();
       final String audioUrl = audio.url.toString();
       final List<MdPlayerQuality> qualities = _uniqueQualities(
-        (manifest.videoOnly.toList()
+        (videoOnly
               ..sort((VideoOnlyStreamInfo a, VideoOnlyStreamInfo b) =>
                   _codecRank(a.videoCodec).compareTo(_codecRank(b.videoCodec))))
             .map(
@@ -307,14 +330,15 @@ class MdPlayerSourceResolver {
       ));
     }
 
-    final List<MdPlayerQuality> hlsQualities = <MdPlayerQuality>[];
-    for (final HlsMuxedStreamInfo stream
-        in manifest.hls.whereType<HlsMuxedStreamInfo>()) {
-      hlsQualities.add(MdPlayerQuality(
-        label: stream.qualityLabel,
-        videoUrl: stream.url.toString(),
-      ));
-    }
+    final List<MdPlayerQuality> hlsQualities = _uniqueQualities(
+      manifest.hls.whereType<HlsMuxedStreamInfo>().map(
+            (HlsMuxedStreamInfo stream) => MdPlayerQuality(
+              label: stream.qualityLabel,
+              videoUrl: stream.url.toString(),
+              videoFormatHint: VideoFormat.hls,
+            ),
+          ),
+    );
     if (hlsQualities.isNotEmpty) {
       final MdPlayerQuality selected = _defaultQuality(hlsQualities);
       candidates.add(MdPlayerSource(

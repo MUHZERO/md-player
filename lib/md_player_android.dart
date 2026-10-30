@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-/// Android Media3 playback, controllers, caching, and Flutter controls.
+/// Media3 (Android) and AVFoundation (iOS) playback, controllers, caching,
+/// and Flutter controls.
 library;
 
 export 'src/android_video_player.dart';

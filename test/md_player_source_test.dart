@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http_parser/http_parser.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:md_player_android/md_player_android.dart';
@@ -219,7 +221,105 @@ void main() {
     );
     resolver.close();
   });
+  group('YouTube source selection per platform', () {
+    final StreamManifest manifest = StreamManifest(<StreamInfo>[
+      _video(134, '360p', 'avc1.4d401e'),
+      _video(298, '720p', 'avc1.4d4020'),
+      _video(302, '720p', 'vp9', StreamContainer.webM),
+      _video(399, '1080p', 'av01.0.09M.08'),
+      _audio(251, StreamContainer.webM, 'opus', 160000),
+      _audio(140, StreamContainer.mp4, 'mp4a.40.2', 130000),
+      _muxed(18, '360p'),
+      _hls(93, '360p'),
+    ]);
+
+    String describe(MdPlayerSource source) =>
+        '${source.audioUrl == null ? 'single' : 'separate'}:'
+        '${source.formatHint?.name ?? 'progressive'}:${source.qualityLabel}';
+
+    test('Android keeps every codec for merged adaptive streams', () {
+      final MdPlayerSourceResolver resolver =
+          MdPlayerSourceResolver(platform: TargetPlatform.android);
+      final List<MdPlayerSource> candidates =
+          resolver.youtubeCandidates('aqz-KE-bpKQ', manifest);
+      expect(candidates.map(describe), <String>[
+        'separate:progressive:360p',
+        'single:progressive:360p',
+        'single:hls:360p',
+      ]);
+      expect(
+        candidates.first.qualities.map((MdPlayerQuality q) => q.label),
+        <String>['360p', '720p', '1080p'],
+      );
+      resolver.close();
+    });
+
+    test('iOS offers only H.264 video with AAC audio', () {
+      final MdPlayerSourceResolver resolver =
+          MdPlayerSourceResolver(platform: TargetPlatform.iOS);
+      final List<MdPlayerSource> candidates =
+          resolver.youtubeCandidates('aqz-KE-bpKQ', manifest);
+      expect(candidates.map(describe), <String>[
+        'separate:progressive:360p',
+        'single:progressive:360p',
+        'single:hls:360p',
+      ]);
+      expect(
+        candidates.first.qualities.map(
+            (MdPlayerQuality q) => '${q.label}:${q.videoItag}:${q.audioItag}'),
+        <String>['360p:134:140', '720p:298:140'],
+      );
+      resolver.close();
+    });
+
+    test('iOS skips adaptive streams without AAC audio', () {
+      final MdPlayerSourceResolver resolver =
+          MdPlayerSourceResolver(platform: TargetPlatform.iOS);
+      expect(
+        resolver
+            .youtubeCandidates(
+              'aqz-KE-bpKQ',
+              StreamManifest(<StreamInfo>[
+                _video(134, '360p', 'avc1.4d401e'),
+                _audio(251, StreamContainer.webM, 'opus', 160000),
+                _muxed(18, '360p'),
+              ]),
+            )
+            .map(describe),
+        <String>['single:progressive:360p'],
+      );
+      resolver.close();
+    });
+  });
 }
+
+MuxedStreamInfo _muxed(int tag, String label) =>
+    MuxedStreamInfo.fromJson(jsonDecode(jsonEncode(<String, dynamic>{
+      ..._stream(tag, StreamContainer.mp4,
+          'video/mp4; codecs="avc1.42001E, mp4a.40.2"', 1),
+      'audioCodec': 'mp4a.40.2',
+      'videoCodec': 'avc1.42001E',
+      'qualityLabel': label,
+      'videoQuality': 'unknown',
+      'videoResolution': const VideoResolution(640, 360),
+      'framerate': const Framerate(30),
+    })) as Map<String, dynamic>);
+
+HlsMuxedStreamInfo _hls(int tag, String label) => HlsMuxedStreamInfo(
+      VideoId('aqz-KE-bpKQ'),
+      tag,
+      Uri.parse('https://g.test/hls/$tag.m3u8'),
+      StreamContainer.mp4,
+      const FileSize(0),
+      const Bitrate(1),
+      'mp4a.40.2',
+      'avc1.4d401f',
+      label,
+      VideoQuality.unknown,
+      const VideoResolution(1920, 1080),
+      const Framerate(30),
+      MediaType('application', 'x-mpegURL'),
+    );
 
 Map<String, dynamic> _stream(
   int tag,
@@ -238,9 +338,14 @@ Map<String, dynamic> _stream(
       'codec': mimeType,
     };
 
-VideoOnlyStreamInfo _video(int tag, String label, String codec) =>
+VideoOnlyStreamInfo _video(
+  int tag,
+  String label,
+  String codec, [
+  StreamContainer container = StreamContainer.mp4,
+]) =>
     VideoOnlyStreamInfo.fromJson(jsonDecode(jsonEncode(<String, dynamic>{
-      ..._stream(tag, StreamContainer.mp4, 'video/mp4; codecs="$codec"', 1),
+      ..._stream(tag, container, 'video/${container.name}; codecs="$codec"', 1),
       'videoCodec': codec,
       'qualityLabel': label,
       'videoQuality': 'unknown',
